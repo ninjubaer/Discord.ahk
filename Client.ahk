@@ -14,12 +14,12 @@ Class client {
             %"afk"%: false
         }
         this.ws := WebSocket("wss://gateway.discord.gg/", {
-            message: (self, msg) => this.onMessage.call(this,msg),
+            message: (self, msg) => this.onMessage(msg),
             disconnect: (self, code, reason) => MsgBox("Disconnected: " code " " reason)
         })
     }
     login(token) {
-        this.ws.sendText(('{"op":2,"d":{"token":"' token '", "intents":' this.intents ', "properties":{"$os":"windows","$browser":"ahk","$device":"ahk"}}'))
+        this.ws.sendText(('{"op":2,"d":{"token":"' token '", "intents":' this.intents ', "properties":{"os":"windows","browser":"ahk","device":"ahk"}}}'))
     }
     onMessage(msg) {
         msgbox msg
@@ -37,11 +37,14 @@ Class client {
             case "READY":
                 this.user := data.d.user
                 this.sessionId := data.d.session_id
-                msgbox this.user.id
+                msgbox 'ready'
         }
     }
     sendHeartbeat(*) {
-        this.ws.sendText('{"op":1,"d":null}')
+        this.ws.sendText('{"op":1,"d":' (this.hasProp("sessionId") ? this.sessionId : 'null') '}')
+    }
+    __Delete() {
+        this.ws.close()
     }
 }
 Class presence {
@@ -73,5 +76,5 @@ Class intents {
 #SingleInstance Force
 Persistent
 
-c := client(intents.GUILDS | intents.GUILD_MEMBERS | intents.GUILD_MESSAGES)
+c := client(1)
 c.login("MTA2OTYzNzk3ODExNDI0MDYxMg.GvFwIp.yoOUb-U6qKjw_q2jMYn6QD1mQRgQ_TlyjBLuD0")
