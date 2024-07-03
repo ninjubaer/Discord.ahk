@@ -1,4 +1,3 @@
-#Include JSON.ahk
 Class FormData {
     __New() {
         this.boundary := '---------------------------' A_TickCount
