@@ -1,8 +1,8 @@
 Class FormData {
     __New() {
-        this.boundary := '---------------------------' A_TickCount
+        this.boundary := '---------------------------' A_TickCount . A_TickCount
         this.hGlobal := DllCall("GlobalAlloc", "UInt", 2, "Ptr", 0, "ptr")
-        this.pStream := (DllCall("ole32\CreateStreamOnHGlobal", "ptr", this.hGlobal, "int", false, "ptrp", &_:=0), _)
+        this.pStream := (DllCall("ole32\CreateStreamOnHGlobal", "ptr", this.hGlobal, "int", false, "ptrp", &_:=0, "uint"), _)
         this.fileCount:=0
         this.contentType := "multipart/form-data; boundary=" SubStr(this.boundary, 2)
     }
@@ -32,6 +32,7 @@ Class FormData {
 			DllCall("shlwapi\IStream_Copy", "Ptr", pFileStream, "Ptr", this.pStream, "UInt", size, "UInt")
 			ObjRelease(pFileStream)
         }
+        return this
     }
     AppendJSON(name, value) => this({name: name, string: JSON.stringify(value, false, ""), type: "application/json"})
     AppendBitmap(pBitmap, filename?) => this({name: 'files[' this.fileCount++ ']',pBitmap: pBitmap, filename: filename ?? 'image.png', type: "image/png"})
@@ -40,10 +41,8 @@ Class FormData {
     utf8(str) {
         StrPut(str, buf:=Buffer(size:=StrPut(str, "UTF-8") - 1), "UTF-8")
         DllCall("shlwapi\IStream_Write", "ptr", this.pStream, "ptr", buf, "uint", size, "uintp", &written:=0)
-        if !written
-            throw MemoryError("Failed to write to stream.")
     }
-    data => (
+    data(&data) {
         this.utf8('`r`n`r`n' this.boundary '--`r`n')
         ObjRelease(this.pStream)
         pGlobal := DllCall("GlobalLock", "Ptr", this.hGlobal, "ptr")
@@ -54,6 +53,6 @@ Class FormData {
 
         DllCall("GlobalUnlock", "Ptr", this.hGlobal)
         DllCall("GlobalFree", "Ptr", this.hGlobal)
-        data
-    )
+        return data
+    }
 }
