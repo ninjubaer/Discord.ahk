@@ -12,7 +12,7 @@ Class REST {
             whr.SetRequestHeader(i, j)
         for i, j in (options.headers ?? {}).OwnProps()
             whr.SetRequestHeader(i, j)
-        whr.Send((IsObject(options.body ?? "") && !(options.body is ComObjArray)) ? JSON.stringify(options.body ?? "") : options.body ?? "")
+        whr.Send((IsObject(options.body ?? "") && !(options.body is ComObjArray || options.body is FormData)) ? JSON.stringify(options.body ?? "") : (options.body is FormData) ? (options.body).data() : options.body ?? "")
         return {status: whr.Status, text: whr.ResponseText, json: JSON.parse(whr.ResponseText)}
     }
     Get(endpoint, options) {
@@ -31,9 +31,17 @@ Class REST {
         return this.Call("DELETE", endpoint, options)
     }
     SendMessage(channelId, content) {
+        if content.hasProp("files") {
+            form := FormData()
+            .AppendJSON("payload_json", content)
+            for i, j in content.files
+                form.AppendBitmap(j)
+            contentType := form.contentType, body := form.data()
+        }
+
         return this("POST", "channels/" channelId "/messages", {
-            body: content,
-            headers: {%"Content-Type"%: "application/json"}
+            body: body ?? content,
+            headers: {%"Content-Type"%: contentType ?? "application/json"}
         })
     }
     __Call(method, endpoint, options) {

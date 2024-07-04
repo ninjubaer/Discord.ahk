@@ -1,10 +1,10 @@
 Class FormData {
     __New() {
-        this.boundary := '---------------------------' A_TickCount . A_TickCount
+        this.boundary := '------------------------------' SubStr(A_Now, 1, 12)
         this.hGlobal := DllCall("GlobalAlloc", "UInt", 2, "Ptr", 0, "ptr")
         this.pStream := (DllCall("ole32\CreateStreamOnHGlobal", "ptr", this.hGlobal, "int", false, "ptrp", &_:=0, "uint"), _)
         this.fileCount:=0
-        this.contentType := "multipart/form-data; boundary=" SubStr(this.boundary, 2)
+        this.contentType := "multipart/form-data; boundary=" SubStr(this.boundary, 3)
     }
     Call(data) {
         str :=
@@ -16,6 +16,7 @@ Class FormData {
 
         ' . (data.hasProp("string") ? data.string . "`r`n": "")
         )
+        A_Clipboard := str
         this.utf8(str)
         if (data.hasProp("pBitmap")) {
             try {
@@ -39,14 +40,15 @@ Class FormData {
     AppendFile(file, contentType := 'application/octet-stream') => this({name: 'files[' this.fileCount++ ']', file: file, type: contentType})
     AppendString(name, value) => this({name: name, string: value, type: "text/plain"})
     utf8(str) {
-        StrPut(str, buf:=Buffer(size:=StrPut(str, "UTF-8") - 1), "UTF-8")
-        DllCall("shlwapi\IStream_Write", "ptr", this.pStream, "ptr", buf, "uint", size, "uintp", &written:=0)
+        StrPut(str, buf:=Buffer(StrPut(str, "UTF-8") - 1), buf.Size, "UTF-8")
+        DllCall("shlwapi\IStream_Write", "ptr", this.pStream, "ptr", buf, "uint", buf.Size)
     }
-    data(&data) {
+    data() {
         this.utf8('`r`n`r`n' this.boundary '--`r`n')
         ObjRelease(this.pStream)
         pGlobal := DllCall("GlobalLock", "Ptr", this.hGlobal, "ptr")
         size := DllCall("GlobalSize", "ptr", pGlobal, "uint")
+        Console.log StrGet(pGlobal, size, "UTF-8")
         data := ComObjArray(0x11, size)
         pvData := NumGet(ComObjValue(data), 8 + A_PtrSize, "ptr")
         DllCall("RtlMoveMemory", "ptr", pvData, "ptr", pGlobal, "uint", size)

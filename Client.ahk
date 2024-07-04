@@ -46,7 +46,6 @@ Class client {
 		}
 	}
 	handleEvent(data) {
-		Console.log(data.t)
 		switch data.t {
 			case "READY":
 				this.user := data.d.user
@@ -55,7 +54,6 @@ Class client {
 		this.CallEvents(data.t, data.d)
 	}
 	sendHeartbeat(*) {
-		Console.log("Sending heartbeat")
 		this.ws.sendText('{"op":1,"d":' this.s '}')
 	}
 	on(event, function) {
