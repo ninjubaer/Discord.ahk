@@ -37,7 +37,7 @@ Class FormData {
     }
     AppendJSON(name, value) => this({name: name, string: JSON.stringify(value, false, ""), type: "application/json"})
     AppendBitmap(pBitmap, filename?) => this({name: 'files[' this.fileCount++ ']',pBitmap: pBitmap, filename: filename ?? 'image.png', type: "image/png"})
-    AppendFile(file, contentType := 'application/octet-stream') => this({name: 'files[' this.fileCount++ ']', file: file, type: contentType})
+    AppendFile(file, contentType := 'application/octet-stream') => this({name: 'files[' this.fileCount++ ']', file: file, type: contentType, filename: (SplitPath(file, &name), name)})
     AppendString(name, value) => this({name: name, string: value, type: "text/plain"})
     utf8(str) {
         StrPut(str, buf:=Buffer(StrPut(str, "UTF-8") - 1), buf.Size, "UTF-8")

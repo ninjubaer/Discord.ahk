@@ -33,6 +33,7 @@ Class client {
 	}
 	login(token) {
 		this.ws.sendText(('{"op":2,"d":{"token":"' token '", "intents":' this.intents ', "properties":{"os":"windows","browser":"ahk","device":"ahk"}}}'))
+        this.rest := REST(token)
 	}
 	omsg(msg) {
 		data := JSON.parse(msg, true, false)
@@ -86,6 +87,39 @@ Class client {
 		this.ws.close()
 	}
 }
+Class Interaction {
+    __New(data) {
+        this.startCounter := QPC()
+        this.data := data
+    }
+    reply(content) {
+        contentType := "application/json"
+        if !content.hasProp("data")
+            content := {type:4,data: content}
+        if content.data.hasProp("embeds")
+            for i,j in content.data.embeds
+                if j is EmbedBuilder
+                    content.data.embeds[i] := j.embedObj
+        if content.data.hasProp("files") {
+            form := FormData()
+            for i,j in content.data.files {
+                if !j is AttachmentBuilder
+                    throw Error("expected AttachmentBuilder")
+                if j.isBitmap
+                    form.AppendBitmap(j.file, j.fileName)
+                else form.AppendFile(j.file, j.contentType)
+                content.data.files[i] := j.attachmentName
+            }
+            form.AppendJSON("payload_json", content)
+            contentType := form.contentType, body := form.data()
+        }
+        return this.rest("POST", "interactions/" this.data.id "/" this.data.token "/callback", {
+            body: body ?? content,
+            headers: { %"Content-Type"%: contentType }
+        })
+    }
+}
+
 Class presence {
 	static playing := 0,
 		streaming := 1,
