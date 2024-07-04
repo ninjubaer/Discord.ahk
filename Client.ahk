@@ -32,6 +32,7 @@ Class client {
 		})
 	}
 	login(token) {
+        this.BotToken := token
 		this.ws.sendText(('{"op":2,"d":{"token":"' token '", "intents":' this.intents ', "properties":{"os":"windows","browser":"ahk","device":"ahk"}}}'))
         this.rest := REST(token)
 	}
@@ -88,9 +89,8 @@ Class client {
 	}
 }
 Class Interaction {
-    __New(data) {
-        this.startCounter := QPC()
-        this.data := data
+    __New(self, data) {
+        this.startCounter := QPC(), this.data := data, this.client := self
     }
     reply(content) {
         contentType := "application/json"
@@ -113,7 +113,7 @@ Class Interaction {
             form.AppendJSON("payload_json", content)
             contentType := form.contentType, body := form.data()
         }
-        return this.rest("POST", "interactions/" this.data.id "/" this.data.token "/callback", {
+        return (this.client.rest)("POST", "interactions/" this.data.id "/" this.data.token "/callback", {
             body: body ?? content,
             headers: { %"Content-Type"%: contentType }
         })
