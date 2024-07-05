@@ -100,6 +100,10 @@ Class Interaction {
             for i,j in content.data.embeds
                 if j is EmbedBuilder
                     content.data.embeds[i] := j.embedObj
+        if content.data.hasProp("components")
+            for i,j in content.data.components
+                if j is ActionRowBuilder
+                    content.data.components[i] := j.actionRow
         if content.data.hasProp("files") {
             form := FormData()
             for i,j in content.data.files {
@@ -116,6 +120,96 @@ Class Interaction {
         return (this.client.rest)("POST", "interactions/" this.data.id "/" this.data.token "/callback", {
             body: body ?? content,
             headers: { %"Content-Type"%: contentType }
+        })
+    }
+    isCommand() => this.data.hasProp("data") && this.data.data.hasProp("name")
+    isButton() => this.data.hasProp("data") && this.data.data.hasProp("component_type") && this.data.data.component_type = 2
+    isSelectMenu() => this.data.hasProp("data") && this.data.data.hasProp("component_type") && this.data.data.component_type = 3
+    getOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name
+                return j.value
+    }
+    getStringOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 3
+                return j.value
+    }
+    getIntegerOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 4
+                return j.value
+    }
+    getBooleanOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 5
+                return j.value
+    }
+    getUserOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 6 
+                return j.value
+    }
+    getChannelOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 7
+                return j.value
+    }
+    getRoleOption(name) {
+        if !this.isCommand()
+            return
+        for i,j in this.data.data.options
+            if j.name = name && j.type = 8
+                return j.value
+    }
+    
+    editReply(content) {
+        contentType := "application/json"
+        if content.hasProp("embeds")
+            for i,j in content.embeds
+                if j is EmbedBuilder
+                    content.embeds[i] := j.embedObj
+        if content.hasProp("components")
+            for i,j in content.components
+                if j is ActionRowBuilder
+                    content.components[i] := j.actionRow
+        if content.hasProp("files") {
+            form := FormData()
+            for i,j in content.files {
+                if !j is AttachmentBuilder
+                    throw Error("expected AttachmentBuilder")
+                if j.isBitmap
+                    form.AppendBitmap(j.file, j.fileName)
+                else form.AppendFile(j.file, j.contentType)
+                content.files[i] := j.attachmentName
+            }
+            form.AppendJSON("payload_json", content)
+            contentType := form.contentType, body := form.data()
+        }
+        return (this.client.rest)("PATCH", "webhooks/" this.client.user.id "/" this.data.token "/messages/@original", {
+            body: body ?? content,
+            headers: { %"Content-Type"%: contentType }
+        })
+    }
+    deleteReply() {
+        return (this.client.rest)("DELETE", "webhooks/" this.client.user.id "/" this.data.token "/messages/@original")
+    }
+    deferReply() {
+        return (this.client.rest)("POST", "interactions/" this.data.id "/" this.data.token "/callback", {
+            body: {type: 5},
+            headers: { %"Content-Type"%: "application/json" }
         })
     }
 }

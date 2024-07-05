@@ -39,6 +39,15 @@ Class REST {
             }
             content.embeds := embeds
         }
+        if content.hasProp("components") {
+            components := []
+            for i, j in content.components {
+                if j is ActionRowBuilder
+                    components.Push(j.actionRow)
+                else components.Push(j)
+            }
+            content.components := components
+        }
         if content.hasProp("files") {
             form := FormData()
             for i, j in content.files {
@@ -49,7 +58,7 @@ Class REST {
                 else form.AppendFile(j.file, j.contentType)
                 content.files[i] := j.attachmentName
             }
-            form.AppendJSON("payload_json", { content: content.hasProp("content") ? content.content : "", embeds: embeds ?? [], files: [] })
+            form.AppendJSON("payload_json", { content: content.hasProp("content") ? content.content : "", embeds: embeds ?? [], files: [], components: components ?? []})
             contentType := form.contentType, body := form.data()
         }
 
@@ -70,4 +79,6 @@ Class REST {
             body: command.commandObject, headers: { %"Content-Type"%: "application/json" }
         })
     }
+    removeSlashCommand(commandId, guildId) =>
+        this("DELETE", "applications/1069637978114240612/commands/" commandId (!guildId or guildId = JSON.null ? "" : "?guild_id=" guildId))
 }
