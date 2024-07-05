@@ -43,13 +43,13 @@
         if obj.hasProp('placeholder')
             content.placeholder := obj.placeholder
         for i in obj.options
-            if !(i.hasProp('lablel') && i.hasProp('value') && i.label && i.value)
+            if !(i.hasProp('label') && i.hasProp('value') && i.label && i.value)
                 throw Error('Options must have a label and value')
         if obj.hasProp('custom_id')
             content.custom_id := obj.custom_id
         else
             throw Error('Select Menus must have a custom_id')
-        this.actionRow.components.push(obj)
+        this.actionRow.components.push(content)
         return this
     }
 }
