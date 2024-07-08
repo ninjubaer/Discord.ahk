@@ -51,7 +51,6 @@
         switch data.t {
             case "READY":
                 this.user := data.d.user
-                this.sessionId := data.d.session_id
         }
         this.CallEvents(data.t, data.d)
     }
