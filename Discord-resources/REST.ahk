@@ -9,7 +9,7 @@ Class REST {
         (whr := ComObject("WinHttp.WinHttpRequest.5.1")).Open(method, this.baseAPI . endpoint, false)
         for i, j in this.defaultHeaders.OwnProps()
             whr.SetRequestHeader(i, j)
-        for i, j in (options.hasProp("header") ? options.header : {}).OwnProps()
+        for i, j in (options.hasProp("headers") ? options.headers : {}).OwnProps()
             whr.SetRequestHeader(i, j)
         whr.Send(options.hasProp("body") ? ((IsObject(options.hasProp("body") ? options.body : "") && !(options.body is ComObjArray || options.body is FormData)) ? JSON.stringify(options.hasProp("body") ? options.body : "") : (options.body is FormData) ? (options.body).data() : options.hasProp("body") ? options.body : "") : "")
         return { status: whr.Status, text: whr.ResponseText, json: JSON.parse(whr.ResponseText) }
@@ -61,7 +61,6 @@ Class REST {
             form.AppendJSON("payload_json", { content: content.hasProp("content") ? content.content : "", embeds: embeds ?? [], files: [], components: components ?? []})
             contentType := form.contentType, body := form.data()
         }
-
         return this("POST", "channels/" channelId "/messages", {
             body: body ?? content,
             headers: { %"Content-Type"%: contentType ?? "application/json" }

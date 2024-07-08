@@ -11,21 +11,17 @@
             GUILD_ROLE_CREATE: [], GUILD_ROLE_UPDATE: [], GUILD_ROLE_DELETE: [],
             GUILD_SCHEDULED_EVENT_CREATE: [], GUILD_SCHEDULED_EVENT_UPDATE: [], GUILD_SCHEDULED_EVENT_DELETE: [],
             GUILD_SCHEDULED_EVENT_USER_ADD: [], GUILD_SCHEDULED_EVENT_USER_REMOVE: [],
-			INTEGRATION_CREATE: [], INTEGRATION_UPDATE: [], INTEGRATION_DELETE: [],
-			INTERACTION_CREATE: [], INVITE_CREATE: [], INVITE_DELETE: [],
-			MESSAGE_CREATE: [], MESSAGE_UPDATE: [], MESSAGE_DELETE: [], MESSAGE_DELETE_BULK: [],
-			MESSAGE_REACTION_ADD: [], MESSAGE_REACTION_REMOVE: [], MESSAGE_REACTION_REMOVE_ALL: [], MESSAGE_REACTION_REMOVE_EMOJI: [],
-			PRESENCE_UPDATE: [], STAGE_INSTANCE_CREATE: [], STAGE_INSTANCE_UPDATE: [], STAGE_INSTANCE_DELETE: [],
-			TYPING_START: [], USER_UPDATE: [], VOICE_STATE_UPDATE: [], VOICE_SERVER_UPDATE: [],
-			VOICE_CHANNEL_STATUS_UPDATE: [], WEBHOOKS_UPDATE: []
+            INTEGRATION_CREATE: [], INTEGRATION_UPDATE: [], INTEGRATION_DELETE: [],
+            INTERACTION_CREATE: [], INVITE_CREATE: [], INVITE_DELETE: [],
+            MESSAGE_CREATE: [], MESSAGE_UPDATE: [], MESSAGE_DELETE: [], MESSAGE_DELETE_BULK: [],
+            MESSAGE_REACTION_ADD: [], MESSAGE_REACTION_REMOVE: [], MESSAGE_REACTION_REMOVE_ALL: [], MESSAGE_REACTION_REMOVE_EMOJI: [],
+            PRESENCE_UPDATE: [], STAGE_INSTANCE_CREATE: [], STAGE_INSTANCE_UPDATE: [], STAGE_INSTANCE_DELETE: [],
+            TYPING_START: [], USER_UPDATE: [], VOICE_STATE_UPDATE: [], VOICE_SERVER_UPDATE: [],
+            VOICE_CHANNEL_STATUS_UPDATE: [], WEBHOOKS_UPDATE: []
         }
 
         this.s := JSON.null
         this.intents := intents
-        this.presence := { %"activities"%: [{ %"name"%: "Discord.ahk", %"type"%: 0
-        }
-        ], %"status"%: "online", %"afk"%: JSON.false
-        }
         this.ws := WebSocket("wss://gateway.discord.gg/", {
             message: (self, msg) => this.omsg(msg),
             disconnect: (self, code, reason) => MsgBox("Disconnected: " code " " reason)
@@ -75,8 +71,8 @@
         }
     }
     CallEvents(event, args*) {
-		if !this.events.hasProp(event)
-			return
+        if !this.events.hasProp(event)
+            return
         for i, e in this.events.%event% {
             (e.f)(args*)
             if e.once
@@ -84,7 +80,7 @@
         }
     }
     setPresence(presence) =>
-        this.ws.sendText('{"op":3,"d":' JSON.stringify(presence) '}')
+        this.ws.sendText('{"op":3,"d":' JSON.stringify(presence, false, "") '}')
     __Delete() {
         this.ws.close()
     }
