@@ -1,12 +1,4 @@
-﻿#Include %A_ScriptDir%\resources
-#Include WebSockets.ahk
-#Include JSON.ahk
-#Include FormData.ahk
-#Include Gdip_All.ahk
-#Include QueryPerformance.ahk
-#Include <Console>
-
-Class client {
+﻿Class client {
     __New(intents) {
         this.events := {
             HELLO: [], READY: [], RESUMED: [], RECONNECT: [], INVALID_SESSION: [],

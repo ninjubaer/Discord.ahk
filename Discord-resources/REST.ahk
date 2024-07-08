@@ -9,9 +9,9 @@ Class REST {
         (whr := ComObject("WinHttp.WinHttpRequest.5.1")).Open(method, this.baseAPI . endpoint, false)
         for i, j in this.defaultHeaders.OwnProps()
             whr.SetRequestHeader(i, j)
-        for i, j in (options.headers ?? {}).OwnProps()
+        for i, j in (options.hasProp("header") ? options.header : {}).OwnProps()
             whr.SetRequestHeader(i, j)
-        whr.Send(options.hasProp("body") ? ((IsObject(options.body ?? "") && !(options.body is ComObjArray || options.body is FormData)) ? JSON.stringify(options.body ?? "") : (options.body is FormData) ? (options.body).data() : options.body ?? "") : "")
+        whr.Send(options.hasProp("body") ? ((IsObject(options.hasProp("body") ? options.body : "") && !(options.body is ComObjArray || options.body is FormData)) ? JSON.stringify(options.hasProp("body") ? options.body : "") : (options.body is FormData) ? (options.body).data() : options.hasProp("body") ? options.body : "") : "")
         return { status: whr.Status, text: whr.ResponseText, json: JSON.parse(whr.ResponseText) }
     }
     Get(endpoint, options) {

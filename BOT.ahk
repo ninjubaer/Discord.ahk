@@ -1,0 +1,10 @@
+﻿#Include %A_LineFile%\..\Discord-resources\Client.ahk
+#Include %A_LineFile%\..\Discord-resources\EmbedBuilder.ahk
+#Include %A_LineFile%\..\Discord-resources\ActionRowBuilder.ahk
+#Include %A_LineFile%\..\Discord-resources\AttachmentBuilder.ahk
+#Include %A_LineFile%\..\Discord-resources\SlashCommandBuilder.ahk
+#Include %A_LineFile%\..\Discord-resources\REST.ahk
+#Include %A_LineFile%\..\resources\FormData.ahk
+#Include %A_LineFile%\..\resources\JSON.ahk
+#Include %A_LineFile%\..\resources\QueryPerformance.ahk
+#Include %A_LineFile%\..\resources\WebSockets.ahk

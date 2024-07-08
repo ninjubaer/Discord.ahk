@@ -1,3 +1,12 @@
+/************************************************************************
+ * @description FormData class for creating form data for POST requests
+ * @file FormData.ahk
+ * @author ninju | .ninju.
+ * @date 2024/07/08
+ * @version 0.0.1
+ * @credits Based on the Discord.CreateFormData method by SP (or zspz) from https://github.com/NatroTeam/NatroMacro
+ ***********************************************************************/
+
 Class FormData {
     __New() {
         this.boundary := '------------------------------' SubStr(A_Now, 1, 12)
@@ -20,11 +29,23 @@ Class FormData {
         this.utf8(str)
         if (data.hasProp("pBitmap")) {
             try {
-					pFileStream := Gdip_SaveBitmapToStream(data.pBitmap)
-					DllCall("shlwapi\IStream_Size", "Ptr", pFileStream, "UInt64P", &size:=0, "UInt")
-					DllCall("shlwapi\IStream_Reset", "Ptr", pFileStream, "UInt")
-					DllCall("shlwapi\IStream_Copy", "Ptr", pFileStream, "Ptr", this.pStream, "UInt", size, "UInt")
-					ObjRelease(pFileStream)
+                DllCall("gdiplus\GdipGetImageEncodersSize", "uintp", &n:=0, "uintp", &s:=0)
+                c := Buffer(s)
+                DllCall("gdiplus\GdipGetImageEncoders", "uint", n, "uint", s, "ptr", c)
+                if !(s && n)
+                    throw Error("no image encoders found")
+                loop n {
+                    addr := NumGet(c, (idx := (48+7*A_PtrSize)*(A_Index-1))+32+3*A_PtrSize, "UPtr")
+                    str := StrGet(addr, "UTF-16")
+                    if !InStr(str, "*.png")
+                        continue
+            
+                    pCodec := c.ptr+idx
+                    break
+                }
+                if !IsSet(pCodec)
+                    throw Error("no PNG encoder found")
+                DllCall("GdiPlus\GdipSaveImageToStream", "ptr", data.pBitmap, "ptr", this.pStream, "ptr", pCodec, "uint", 0)
 			}
         }
         if (data.hasProp("file")) {
@@ -44,17 +65,19 @@ Class FormData {
         DllCall("shlwapi\IStream_Write", "ptr", this.pStream, "ptr", buf, "uint", buf.Size)
     }
     data() {
+        if this.HasOwnProp("_data")
+            return this._data
         this.utf8('`r`n`r`n' this.boundary '--`r`n')
         ObjRelease(this.pStream)
         pGlobal := DllCall("GlobalLock", "Ptr", this.hGlobal, "ptr")
         size := DllCall("GlobalSize", "ptr", pGlobal, "uint")
-        Console.log StrGet(pGlobal, size, "UTF-8")
         data := ComObjArray(0x11, size)
         pvData := NumGet(ComObjValue(data), 8 + A_PtrSize, "ptr")
         DllCall("RtlMoveMemory", "ptr", pvData, "ptr", pGlobal, "uint", size)
 
         DllCall("GlobalUnlock", "Ptr", this.hGlobal)
         DllCall("GlobalFree", "Ptr", this.hGlobal)
+        this._data := data
         return data
     }
 }
