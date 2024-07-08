@@ -148,6 +148,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 3
                 return j.value
+        return JSON.null
     }
     getIntegerOption(name) {
         if !this.isCommand
@@ -155,6 +156,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 4
                 return j.value
+        return JSON.null
     }
     getBooleanOption(name) {
         if !this.isCommand
@@ -162,6 +164,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 5
                 return j.value
+        return JSON.null
     }
     getUserOption(name) {
         if !this.isCommand
@@ -169,6 +172,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 6
                 return j.value
+        return JSON.null
     }
     getChannelOption(name) {
         if !this.isCommand
@@ -176,6 +180,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 7
                 return j.value
+        return JSON.null
     }
     getRoleOption(name) {
         if !this.isCommand
@@ -183,6 +188,7 @@ Class Interaction {
         for i, j in this.data.data.options
             if j.name = name && j.type = 8
                 return j.value
+        return JSON.null
     }
 
     editReply(content) {
