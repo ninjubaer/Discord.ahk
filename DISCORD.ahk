@@ -93,7 +93,7 @@ Class Discord {
         class Clan {
             identity_guild_id:="",identity_enabled:=0, tag:="", badge := ""
         }
-        __private:={__id:0,__username:"",__discriminator:"",__avatar:"",__flags:0,__banner:"",__accent_color:0,__premium_type:Discord.User.PremiumTypes.NONE,__public_flags:0,__avatar_decoration_data:0, __banner_color: 0, __clan: 0, }
+        __private:={__id:0,__username:"",__discriminator:"",__avatar:"",__flags:0,__banner:"",__accent_color:0,__public_flags:0,__avatar_decoration_data:0, __banner_color: 0, __clan: 0, __bot : 0}
         id => this.__private.__id
         username => this.__private.__username
         discriminator => this.__private.__discriminator
@@ -106,18 +106,21 @@ Class Discord {
         avatar_decoration_data => this.__private.__avatar_decoration_data
         banner_color => this.__private.__banner_color
         clan => this.__private.__clan
+        bot => this.__private.__bot
         /**
          * a Discord User object retrieved from /users/{id} 
          * @param {Object} obj a Discord User object retrieved from /users/{id} 
          */
         __New(obj) {
+            msgbox JSON.stringify(obj)
             if Type(obj) != "Object"
                 Throw TypeError("Expected an object but received a " Type(obj))
+            obj.bot := obj.HasProp("bot") ? obj.bot : 0
             for i, j in obj.OwnProps()
-                if this.__private.HasProp(i)
-                    this.__private.%i% := j
-            for i,j in this.__private
-                if !obj.HasProp(i)
+                if this.__private.HasProp("__" i)
+                    this.__private.%("__" i)% := j
+            for i,j in this.__private.OwnProps()
+                if !obj.HasProp(SubStr(i, 3))
                     Throw TypeError("Missing property " i)
         }
     }
