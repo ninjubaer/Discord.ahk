@@ -54,11 +54,98 @@ Class Discord {
             this.events.%event.name%.Push(event)
             return event
         }
-
+        getUser(id) => this.rest.getUser(id)
         Class REST {
-            token := ""
-            __New(token) {
-                this.token := token
+            token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "Discord.ahk by ninju"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
+            __New(token, version?) {
+                if !token is String
+                    throw TypeError("Expected a string but received a " Type(token))
+                if !RegExMatch(token, 'i)^[\w-.]{50,83}$')
+                    throw TypeError("Invalid token")
+                this.token := token, this.headers.Authorization := "Bot " token
+                if IsSet(version) {
+                    if !version is String
+                        throw TypeError("Expected a string but received a " Type(version))
+                    if !RegExMatch(version, 'i)^v\d+$')
+                        throw TypeError("Invalid version identifier")
+                    this.version := version, this.endpoint := 'https://discord.com/api/' version
+                }
+            }
+            Call(method, endpoint, data?, headers?) {
+                if !method is String
+                    throw TypeError('Expected a String but got a ' Type(method))
+                if !((method:=StrUpper(method)) ~= '^(GET|POST|PUT|PATCH|DELETE)$')
+                    throw TypeError('Invalid method')
+                if !endpoint is String
+                    throw TypeError('Expected a String but got a ' Type(endpoint))
+                if !RegExMatch(endpoint, 'i)^/[^\s]+/?$')
+                    throw TypeError('Invalid endpoint')
+                if IsSet(data) && !(data is String || data is ComObjArray)
+                    throw TypeError('Expected a String or a ComObjArray but got a ' Type(data))
+
+                this.whr.Open(method, this.baseURL (SubStr(endpoint,1,1) = '/' ? endpoint : '/' endpoint), false)
+                for i, j in this.headers.OwnProps()
+                    this.whr.setRequestHeader(i, j)
+                if IsSet(headers) {
+                    if !(headers is Object || headers is Map)
+                        throw TypeError('Expected an Object or a Map but got a ' Type(headers))
+                    for i, j in headers is Map ? headers : headers.OwnProps()
+                        this.whr.setRequestHeader(i, j)
+                }
+                this.whr.option[9] := 2720
+                this.whr.Send(data?)
+                return this.whr.ResponseText                
+            }
+            getUser(id) {
+                if !(id is String || id is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(id))
+                if !RegExMatch(id, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid user id")
+                return Discord.User(JSON.parse(this('GET', '/users/' id),,false))
+
+            }
+            sendMessage(channel, message) {
+                if !(channel is String || channel is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channel))
+                if !RegExMatch(channel, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !message is Discord.Message
+                    throw TypeError("Expected a Discord.Message but received a " Type(message))
+                if message.attachments.length = 0 {
+                    out := JSON.parse(this('POST', '/channels/' channel '/messages', JSON.stringify(message.obj), {%"Content-Type"%: "application/json"}),,false)
+                    if !out.HasProp('id')
+                        return out
+                    message.id := out.id
+                    message.channel_id := out.channel_id
+                    return message
+                }
+                fd := Discord.FormData()
+                fd.append('payload_json', s:=JSON.stringify(message.obj), StrLen(s), "application/json")
+                for i, j in message.attachments {
+                    fd.append('files[' i-1 ']', j.ptr, j.size,j.contentType, j.filename)
+                }
+                out := JSON.parse(this('POST', '/channels/' channel '/messages', fd.data, {%"Content-Type"%: fd.contentType}),,false)
+                if !out.HasProp('id')
+                    return out
+                message.id := out.id
+                message.channel_id := out.channel_id
+                return message
+            }
+            deleteMessage(channel, message) {
+                if !(channel is String || channel is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channel))
+                if !RegExMatch(channel, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !(message is Discord.Message || message is String || message is Integer)
+                    throw TypeError("Expected a Discord.Message, a string or an integer but received a " Type(message))
+                if message is Discord.Message {
+                    if !message.id
+                        throw TypeError("Message must be sent before deleting")
+                    message := message.id
+                }
+                if !RegExMatch(message, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid message id")
+                return this('DELETE', '/channels/' channel '/messages/' message)
             }
         }
 
@@ -112,7 +199,6 @@ Class Discord {
          * @param {Object} obj a Discord User object retrieved from /users/{id} 
          */
         __New(obj) {
-            msgbox JSON.stringify(obj)
             if Type(obj) != "Object"
                 Throw TypeError("Expected an object but received a " Type(obj))
             obj.bot := obj.HasProp("bot") ? obj.bot : 0
@@ -124,14 +210,284 @@ Class Discord {
                     Throw TypeError("Missing property " i)
         }
     }
-    Class Channel {
+/*     Class Channel {
 
-    }
+    } */
     Class Message {
+        obj := {}, attachments:=[], id:=0, channel_id:=0
+        __New(obj) {
+            if !Type(obj) = "Object"
+                throw TypeError("Expected an object but received a " Type(obj))
+            for i, j in obj.OwnProps()
+                if !(i = "attachments" || i = "embeds" || i = "content" || i = "components")
+                    throw TypeError("Invalid property " i)
 
+            if obj.HasProp("embeds") {
+                this.obj.embeds := []
+                for i, j in obj.embeds {
+                    if !j is Discord.Embed
+                        throw TypeError("Expected a Discord.Embed but received a " Type(j))
+                    this.obj.embeds.Push(j.embed)
+                    for k, l in j.mpfd
+                        this.updateAttachments(l)
+                }
+            }
+            if obj.HasProp("attachments") {
+                this.obj.attachments := []
+                for i,j in obj.attachments {
+                    if !j is Discord.Attachment
+                        throw TypeError("Expected a Discord.Attachment but received a " Type(j))
+                    this.updateAttachments(j)
+                    this.obj.attachments.Push({filename: j.filename, url: "attachment://" j.filename, id: 0, description: j.description})
+                }
+            }
+            if obj.HasProp("content") {
+                if !obj.content is String
+                    throw TypeError("Expected a string but received a " Type(obj.content))
+                this.obj.content := obj.content
+            }
+            if obj.HasProp("components") {
+                this.obj.components := []
+                for i,j in obj.components {
+                    if !j is Discord.Component
+                        throw TypeError("Expected a Discord.Component but received a " Type(j))
+                    this.obj.components.Push(j)
+                }
+            }
+        }
+        updateAttachments(attachment) {
+            if !attachment is Discord.Attachment
+                throw TypeError("Expected a Discord.Attachment but received a " Type(attachment))
+            for i, j in this.attachments {
+                if attachment = j
+                    return
+                if j.filename = attachment.filename
+                    throw TypeError("Can't have two attachments with the same filename")
+            }
+            this.attachments.Push(attachment)
+        }
+        send(REST, channel) {
+            if !REST is Discord.Bot.REST
+                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+            if !channel is String
+                throw TypeError("Expected a string but received a " Type(channel))
+            if !RegExMatch(channel, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            return REST.sendMessage(channel, this)
+        }
+        edit(REST, obj) {
+            if !REST is Discord.Bot.REST
+                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+            if !this.id || !this.channel_id
+                throw TypeError("Message must be sent before editing")
+            if !obj is Object
+                throw TypeError("Expected an object but received a " Type(obj))
+            this.obj.content := '', this.obj.embeds := [], this.obj.attachments := [], this.obj.components := [], this.attachments := []
+            if obj.HasProp("content") {
+                if !obj.content is String
+                    throw TypeError("Expected a string but received a " Type(obj.content))
+                this.obj.content := obj.content
+            }
+            if obj.HasProp("embeds") {
+                this.obj.embeds := []
+                for i, j in obj.embeds {
+                    if !j is Discord.Embed
+                        throw TypeError("Expected a Discord.Embed but received a " Type(j))
+                    this.obj.embeds.Push(j.embed)
+                    for k, l in j.mpfd
+                        this.updateAttachments(l)
+                }
+            }
+            if obj.HasProp("attachments") {
+                this.obj.attachments := []
+                for i,j in obj.attachments {
+                    if !j is Discord.Attachment
+                        throw TypeError("Expected a Discord.Attachment but received a " Type(j))
+                    this.updateAttachments(j)
+                    this.obj.attachments.Push({filename: j.filename, url: "attachment://" j.filename, id: 0, description: j.description})
+                }
+            }
+            if obj.HasProp("components") {
+                this.obj.components := []
+                for i,j in obj.components {
+                    if !j is Discord.Component
+                        throw TypeError("Expected a Discord.Component but received a " Type(j))
+                    this.obj.components.Push(j)
+                }
+            }
+            return REST("PATCH", "/channels/" this.channel_id "/messages/" this.id, JSON.stringify(this.obj), {%"Content-Type"%: "application/json"})
+        }
+        delete(REST) {
+            if !REST is Discord.Bot.REST
+                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+            if !this.id || !this.channel_id
+                throw TypeError("Message must be sent before deleting")
+            return REST.deleteMessage(this.channel_id, this.id)
+        }
     }
     Class Embed {
-
+        embed := {}, mpfd := []
+        setTitle(title) {
+            if !title is String
+                throw TypeError("Expected a string but received a " Type(title))
+            if StrLen(title) > 256
+                throw TypeError("Title must be less than 256 characters")
+            this.embed.title := title
+            return this
+        }
+        setDescription(description) {
+            if !description is String
+                throw TypeError("Expected a string but received a " Type(description))
+            if StrLen(description) > 4096
+                throw TypeError("Description must be less than 4096 characters")
+            this.embed.description := description
+            return this
+        }
+        setUrl(url) {
+            if !url is String
+                throw TypeError("Expected a string but received a " Type(url))
+            if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                throw TypeError("Invalid url")
+            this.embed.url := url
+            return this
+        }
+        setTimestamp(timestamp?) {
+            if IsSet(timestamp) {
+                if !timestamp is Discord.TimeStamp
+                    throw TypeError("Expected a Discord.TimeStamp but received a " Type(timestamp))
+            }
+            else {
+                timestamp := Discord.TimeStamp.Now()
+            }
+            this.embed.timestamp := timestamp.timestamp
+            return this
+        }
+        setColor(color) {
+            if (color is Integer) {
+                if (color < 0 || color > 0xFFFFFF)
+                    throw TypeError("Invalid color")
+            }
+            else if (color is String) {
+                if RegExMatch(color, 'i)^(#|0x)([0-9A-F]{6})$', &rmi)
+                    color := Integer("0x" rmi.2)
+                else throw TypeError("Invalid color")
+            }
+            else throw TypeError("Invalid color")
+            this.embed.color := color
+            return this
+        }
+        setFooter(text, icon_url?) {
+            if !text is String
+                throw TypeError("Expected a string but received a " Type(text))
+            if StrLen(text) > 2048
+                throw TypeError("Text must be less than 2048 characters")
+            if IsSet(icon_url) {
+                if !(icon_url is String || icon_url is Discord.Attachment)
+                    throw TypeError("Expected an URL or Discord.Attachment but received a " Type(icon_url))
+                if icon_url is String {
+                    if !RegExMatch(icon_url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                        throw TypeError("Invalid url")
+                }
+                else {
+                    this.mpfd.Push(icon_url)
+                    icon_url := "attachment://" icon_url.filename
+                }
+                this.embed.footer := {text: text, icon_url: icon_url}
+                return this
+            }
+            this.embed.footer := {text: text}
+            return this
+        }
+        setImage(url) {
+            if !(url is String || url is Discord.Attachment)
+                throw TypeError("Expected an URL or Discord.Attachment but received a " Type(url))
+            if url is String {
+                if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                    throw TypeError("Invalid url")
+            }
+            else {
+                this.mpfd.Push(url)
+                url := "attachment://" url.filename
+            }
+            this.embed.image := {url: url}
+            return this
+        }
+        setThumbnail(url) {
+            if !(url is String || url is Discord.Attachment)
+                throw TypeError("Expected an URL or Discord.Attachment but received a " Type(url))
+            if url is String {
+                if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                    throw TypeError("Invalid url")
+            }
+            else {
+                this.mpfd.Push(url)
+                url := "attachment://" url.filename
+            }
+            this.embed.thumbnail := {url: url}
+            return this
+        }
+        setAuthor(name, url?, icon_url?) {
+            if !name is String
+                throw TypeError("Expected a string but received a " Type(name))
+            if StrLen(name) > 256
+                throw TypeError("Name must be less than 256 characters")
+            if IsSet(url) {
+                if !url is String
+                    throw TypeError("Expected a string but received a " Type(url))
+                if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                    throw TypeError("Invalid url")
+            }
+            if IsSet(icon_url) {
+                if !(icon_url is String || icon_url is Discord.Attachment)
+                    throw TypeError("Expected a string or a Discord.Attachment but received a " Type(icon_url))
+                if icon_url is String {
+                    if !RegExMatch(icon_url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                        throw TypeError("Invalid url")
+                }
+                else {
+                    this.mpfd.Push(icon_url)
+                    icon_url := "attachment://" icon_url.filename
+                }
+            }
+            this.embed.author := {name: name}
+            if IsSet(url)
+                this.embed.author.url := url
+            if IsSet(icon_url)
+                this.embed.author.icon_url := icon_url
+            return this
+        }
+        addField(name, value, inline := false) {
+            if !name is String
+                throw TypeError("Expected a string but received a " Type(name))
+            if !value is String
+                throw TypeError("Expected a string but received a " Type(value))
+            if StrLen(name) > 256
+                throw TypeError("Name must be less than 256 characters")
+            if StrLen(value) > 1024
+                throw TypeError("Value must be less than 1024 characters")
+            if this.embed.fields.MaxIndex() >= 25
+                throw TypeError("Fields limit reached")
+            this.embed.fields.Push({name: name, value: value, inline: JSON.false})
+            return this
+        }
+    }
+    Class TimeStamp {
+        static Call(timestamp) {
+            if !timestamp is String
+                throw TypeError("Expected a string but received a " Type(timestamp))
+            if RegExMatch(timestamp, 'i)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$')
+                return {base: Discord.TimeStamp.Prototype, timestamp: timestamp}
+            else if RegExMatch(timestamp, 'i)^\d{14}')
+                return {base: Discord.TimeStamp.Prototype, timestamp: FormatTime(timestamp, "yyyy-MM-ddTHH:mm:ss.000Z")}
+            else
+                throw TypeError("Invalid timestamp")
+        }
+        Class Now extends Discord.TimeStamp {
+            static Call() {
+                now := A_Now
+                return {base: Discord.TimeStamp.Prototype, timestamp: FormatTime(now, "yyyy-MM-ddTHH:mm:ss.000Z")}
+            }
+        }
     }
     Class Reaction {
 
@@ -322,7 +678,65 @@ Class Discord {
         static competing := 5
     }
     Class Attachment {
-
+        ptr := 0, size := 0, contentType := '', filename:='', description:=''
+        Class File extends Discord.Attachment {
+            __New(path, contentType?, description?) {
+                if !path is String
+                    throw TypeError("Expected a string but received a " Type(path))
+                if !FileExist(path)
+                    throw TypeError("File does not exist")
+                if IsSet(description) && description is String
+                    this.description := description
+                f := FileOpen(path, "R")
+                f.RawRead(buf := Buffer(this.size:=f.Length,0)), this.ptr:=buf.Ptr
+                if !IsSet(contentType) || !contentType {
+                    this.contentType := (n:=f.ReadUInt() = 0x474E5089) ? "image/png"
+                    : n=0x38464947 ? "image/gif"
+                    : n=0x25504446 ? "application/pdf"
+                    : n=0x504B0304 ? "application/zip"
+                    : n=0x504B0506 ? "application/zip"
+                    : n=0x504B0708 ? "application/zip"
+                    : n & 0xFFFF = 0x4D42 ? "image/bmp"
+                    : n & 0xFFFF = 0xD8FF ? "image/jpeg"
+                    : n & 0xFFFF = 0x4949 ? "image/tiff"
+                    : n & 0xFFFF = 0x4D4D ? "image/tiff"
+                    : 'application/octet-stream'
+                }
+                else this.contentType := contentType
+                SplitPath(path, &filename)
+                this.filename := filename
+                f.Close()
+            }
+        }
+        Class Bitmap extends Discord.Attachment {
+            contentType := "image/png", hGlobal := 0
+            __New(pBitmap, filename := 'image.png', description?) {
+                if !(pBitmap is Integer)
+                    throw TypeError("Expected an integer but received a " Type(pBitmap))
+                if !(filename is String)
+                    throw TypeError("Expected a string but received a " Type(filename))
+                if IsSet(description) && description is String
+                    this.description := description
+                DllCall("gdiplus\GdipGetImageEncodersSize", "uintp", &n:=0, "uintp", &s:=0)
+                if !n || !s
+                    throw OSError("Failed to get GdipGetImageEncodersSize")
+                buf := Buffer(s)
+                DllCall("GdiPlus\GdipGetImageEncoders", "uint", n, "uint", s, "ptr", buf)
+                loop n
+                    if InStr(StrGet(NumGet(buf, (idx := (48+7*A_PtrSize)*(A_Index-1))+32+3*A_PtrSize, "UPtr"), "UTF-16"), "*.PNG")
+                        this.hGlobal:=DllCall("GlobalAlloc", "uint", 0x2, "uint", 0), DllCall("ole32\CreateStreamOnHGlobal", "ptr", this.hGlobal, "int", 1, "ptrp", &pStream:=0), DllCall("GdiPlus\GdipSaveImageToStream", "ptr", pBitmap, "ptr", pStream, "ptr", buf.ptr+idx, "ptr", 0)
+                if !this.HasProp('hGlobal')
+                    throw OSError('Can`'t find PNG encoder')
+                this.ptr := DllCall("GlobalLock", "ptr", this.hGlobal), this.size := DllCall("GlobalSize", "ptr", this.hGlobal), this.filename := filename
+            }
+            __Delete() {
+                if !this.hGlobal
+                    return
+                if !this.ptr
+                    return DllCall("GlobalFree", "ptr", this.hGlobal)
+                DllCall("GlobalUnlock", "ptr", this.ptr), DllCall("GlobalFree", "ptr", this.hGlobal)
+            }
+        }
     }
     Class Component {
 
@@ -571,6 +985,37 @@ Class Discord {
             while (this.HINTERNETs.Length > 2)
                 DllCall('Winhttp\WinHttpCloseHandle', 'ptr', this.HINTERNETs.Pop())
             this.Ptr := 0
+        }
+    }
+    class FormData {
+        __New() {
+            this.buf := Buffer(1), this.offset := 0
+            this.boundary := '------------------------' A_Now A_TickCount
+            this.contentType := 'multipart/form-data; boundary=' this.boundary
+        }
+        append(name, value, size, contentType, filename?) {
+            if !name is String
+                throw TypeError("Expected a string but received a " Type(name))
+            if !contentType is String
+                throw TypeError("Expected a string but received a " Type(contentType))
+            if IsSet(filename) && !filename is String
+                throw TypeError("Expected a string but received a " Type(filename))
+            str := (this.offset ? '`n' : '') '--' this.boundary '`nContent-Disposition: form-data; name="' name '"' (IsSet(filename) ? '; filename="' filename '"' : '') '`nContent-Type: ' contentType '`n`n' (value is String ? value : '')
+            this.buf.Size+=len:=StrLen(str), StrPut(str, this.buf.ptr+this.offset, 'utf-8'), this.offset += len
+            if (not Value is String)
+                this.buf.Size+=size, DllCall('RtlMoveMemory', 'ptr', this.buf.ptr+this.offset, 'ptr', value, 'uint', size), this.offset += size
+            return this
+        }
+        data {
+            get {
+                buf := Buffer(this.buf.Size,0), DllCall('RtlMoveMemory', 'ptr', buf.ptr, 'ptr', this.buf.ptr, 'uint', this.buf.Size)
+                str := '`n--' this.boundary '--`n', buf.Size+=StrLen(str), StrPut(str, buf.ptr+this.offset, 'utf-8')
+                data := ComObjArray(0x11, buf.Size)
+                DllCall('oleaut32\SafeArrayAccessData', 'ptr', data, 'ptr*', &p:=0)
+                DllCall('RtlMoveMemory', 'ptr', p, 'ptr', buf.ptr, 'uint', buf.Size)
+                DllCall('oleaut32\SafeArrayUnaccessData', 'ptr', data)
+                return data
+            }
         }
     }
 }
