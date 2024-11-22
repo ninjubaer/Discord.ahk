@@ -988,12 +988,15 @@ Class Discord {
         }
     }
     class FormData {
+        __data := 0
         __New() {
             this.buf := Buffer(1), this.offset := 0
             this.boundary := '------------------------' A_Now A_TickCount
             this.contentType := 'multipart/form-data; boundary=' this.boundary
         }
         append(name, value, size, contentType, filename?) {
+            if this.__data
+                throw TypeError("Data has been created")
             if !name is String
                 throw TypeError("Expected a string but received a " Type(name))
             if !contentType is String
@@ -1008,13 +1011,14 @@ Class Discord {
         }
         data {
             get {
-                buf := Buffer(this.buf.Size,0), DllCall('RtlMoveMemory', 'ptr', buf.ptr, 'ptr', this.buf.ptr, 'uint', this.buf.Size)
-                str := '`n--' this.boundary '--`n', buf.Size+=StrLen(str), StrPut(str, buf.ptr+this.offset, 'utf-8')
-                data := ComObjArray(0x11, buf.Size)
-                DllCall('oleaut32\SafeArrayAccessData', 'ptr', data, 'ptr*', &p:=0)
-                DllCall('RtlMoveMemory', 'ptr', p, 'ptr', buf.ptr, 'uint', buf.Size)
-                DllCall('oleaut32\SafeArrayUnaccessData', 'ptr', data)
-                return data
+                if this.__data
+                    return this.__data
+                this.buf.Size+=StrLen(str := '`n--' this.boundary '--`n'), StrPut(str, this.buf.ptr+this.offset, 'utf-8')
+                this.__data := ComObjArray(0x11, this.buf.Size)
+                DllCall('oleaut32\SafeArrayAccessData', 'ptr', this.__data, 'ptr*', &p:=0)
+                DllCall('RtlMoveMemory', 'ptr', p, 'ptr', this.buf.ptr, 'uint', this.buf.Size)
+                DllCall('oleaut32\SafeArrayUnaccessData', 'ptr', this.__data)
+                return this.__data
             }
         }
     }
