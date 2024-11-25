@@ -499,7 +499,48 @@ Class Discord {
 
     }
     Class Command {
+        static CommandEnum := {
+            SUB_COMMAND: 1,
+            SUB_COMMAND_GROUP: 2,
+            STRING: 3,
+            INTEGER: 4,
+            BOOLEAN: 5,
+            USER: 6,
+            CHANNEL: 7,
+            ROLE: 8,
+            MENTIONABLE: 9,
+            NUMBER: 10
+        }
+        guild_id := 0
+        __New(name, description, guild_id?) {
+            if IsSet(guild_id) {
+                this.guild_id := guild_id
+            }
+            this.command := {name: name, description: description}
+        }
+        addStringOption() {
+            if !this.command.hasProp('options')
+                this.command.options := [{type:3}]
+            else
+                this.command.options.push({type:3})
+            return Discord.Command.Option()
+        }
+        addIntegerOption() {
 
+        }
+        addBooleanOption() {
+
+        }
+
+        class Option {
+
+        }
+        class SUB_COMMAND {
+
+        }
+        class SUB_COMMAND_GROUP {
+
+        }
     }
     Class Event {
         static EventEnum := {
@@ -627,7 +668,8 @@ Class Discord {
             APPLICATION_COMMAND_PERMISSIONS_UPDATE: 0,
             APPLICATION_COMMAND_CREATE: 0,
             APPLICATION_COMMAND_UPDATE: 0,
-            APPLICATION_COMMAND_DELETE: 0
+            APPLICATION_COMMAND_DELETE: 0,
+            INTERACTION_CREATE: 0
         }
         name := "", callback := 0
         __New(name, callback, intents) {
@@ -635,7 +677,7 @@ Class Discord {
                 throw TypeError("Expected a function but received a " Type(callback))
             if !name is String or !Discord.Event.EventEnum.HasProp(name)
                 throw TypeError("Invalid event name")
-            if callback.MaxParams() < 3 || callback.MinParams() > 3
+            if callback.MaxParams < 3 || callback.MinParams > 3
                 throw TypeError("Invalid callback")
             if (Discord.Event.EventEnum.%name%) && !(Discord.Event.EventEnum.%name% & intents)
                 throw TypeError("Missing intent: " Discord.Event.EventEnum.%name%)
@@ -742,7 +784,66 @@ Class Discord {
 
     }
     Class Interaction {
-
+        static Call(self, obj) {
+            if !self is Discord.Bot
+                throw TypeError("Expected a Discord.Bot but received a " Type(self))
+            if !obj is Object
+                throw TypeError("Expected an object but received a " Type(obj))
+            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+                if !obj.HasProp(j)
+                    throw TypeError("Missing property " j)
+            data := obj
+            data.timestamp := Discord.TimeStamp.Now()
+            data.startCount := (DllCall("QueryPerformanceCounter", "int64p", &_:=0), _)
+            data.self := self
+            data.reply := ObjBindMethod(this, "Reply")
+            data.deferReply := ObjBindMethod(this, "DeferReply")
+            data.EditReply := ObjBindMethod(this, "EditReply")
+            return data
+        }
+        static Reply(data, Message) {
+            if !Message is Discord.Message
+                throw TypeError("Expected a Discord.Message but received a " Type(Message))
+            if !data is Object
+                throw TypeError("Expected an object but received a " Type(data))
+            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+                if !data.HasProp(j)
+                    throw TypeError("Missing property " j)
+            rest := data.self.rest
+            if !Message.attachments.length
+                return rest("POST", "/interactions/" data.id "/" data.token "/callback", JSON.stringify({type: 4, data: Message.obj}), {%"Content-Type"%: "application/json"})
+            fd := Discord.FormData()
+            fd.append("payload_json", s:=JSON.stringify({type: 4, data: Message.obj}), StrLen(s), "application/json")
+            for i, j in Message.attachments
+                fd.append("files[" i-1 "]", j.ptr, j.size, j.contentType, j.filename)
+            return rest("POST", "/interactions/" data.id "/" data.token "/callback", fd.data, {%"Content-Type"%: fd.contentType})
+        }
+        static DeferReply(data) {
+            if !data is Object
+                throw TypeError("Expected an object but received a " Type(data))
+            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+                if !data.HasProp(j)
+                    throw TypeError("Missing property " j)
+            rest := data.self.rest
+            return rest("POST", "/interactions/" data.id "/" data.token "/callback", JSON.stringify({type: 5}), {%"Content-Type"%: "application/json"})
+        }
+        static EditReply(data, Message) {
+            if !Message is Discord.Message
+                throw TypeError("Expected a Discord.Message but received a " Type(Message))
+            if !data is Object
+                throw TypeError("Expected an object but received a " Type(data))
+            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+                if !data.HasProp(j)
+                    throw TypeError("Missing property " j)
+            rest := data.self.rest
+            if !Message.attachments.length
+                return rest("PATCH", "/webhooks/" data.self.user.id "/" data.token "/messages/@original", JSON.stringify(Message.obj), {%"Content-Type"%: "application/json"})
+            fd := Discord.FormData()
+            fd.append("payload_json", s:=JSON.stringify(Message.obj), StrLen(s), "application/json")
+            for i, j in Message.attachments
+                fd.append("files[" i-1 "]", j.ptr, j.size, j.contentType, j.filename)
+            return rest("PATCH", "/webhooks/" data.self.user.id "/" data.token "/messages/@original", fd.data, {%"Content-Type"%: fd.contentType})
+        }
     }
 
     class WebSocket {
