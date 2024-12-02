@@ -1,12 +1,16 @@
-#Include .\..\natromacro\lib\JSON.ahk
+#include <JSON>
 Class Discord {
+    static QPC() {
+        static c, f := (DllCall("QueryPerformanceFrequency", "Int64P", &c:=0) ,c/= 1000)
+        return (DllCall("QueryPerformanceCounter", "Int64P", &c:=0) ,c/f)
+    }
     Class Bot {
-        __user:={}, __intents:=0, __token := "", s:="null", events:={}
+        __user:={}, __intents:=0, __token := "", s:=JSON.null, events:={}, __last_heartbeatack:=0, __last_heartbeat:=0, __latency:=0, heartbeat_interval:=0, rest:=0, __ws:=0
         __New(intents) {
             if !IsInteger(intents)
                 throw TypeError("Expected an integer but received a " Type(intents))
             this.__intents := intents
-            this.__ws := Discord.WebSocket('wss://gateway.discord.gg/', {
+            this.__ws := Discord.WebSocket('wss://gateway.discord.gg/?v=10&encoding=json', {
                 message: (self, message) => this.__omsg(message),
                 close: (*)=>MsgBox("Close")
             })
@@ -15,7 +19,7 @@ Class Discord {
         User=>this.__user
         Token=>this.__token
         login(token) {
-            if !token is String
+            if !(token is String)
                 throw TypeError("Invalid token")
             if !RegExMatch(token, 'i)^[\w-.]{50,83}$')
                 throw TypeError("Invalid token")
@@ -25,10 +29,17 @@ Class Discord {
         }
         __omsg(data) {
             data := JSON.parse(data, true, false)
+            if data.s != JSON.null
+                this.s := data.s
             switch data.op {
+                case 11:
+                    this.__last_heartbeatack := Discord.QPC()
+                    this.__latency := Round(this.__last_heartbeatack - this.__last_heartbeat)
+
                 case 10:
                     this.heartbeat_interval := data.d.heartbeat_interval
-                    SetTimer((*)=>this.__ws.sendText('{"op":1,"d":' this.s '}'), this.heartbeat_interval)
+                    this.__last_heartbeatack := Discord.QPC()
+                    SetTimer((*)=>this.sendHeartbeat(), this.heartbeat_interval)
                 case 0:
                     switch data.t {
                         case "READY":
@@ -37,9 +48,18 @@ Class Discord {
                     if !this.events.HasProp(data.t)
                         return
                     for i, j in this.events.%data.t%
-                        j.callback(this, j, data.d)
-
+                        SetTimer(((self,event,data)=>event.callback(self, event, data)).Bind(this, j, data.d), -1)
             }
+        }
+        sendHeartbeat() {
+            s:=this.__last_heartbeat := Discord.QPC()
+            this.__ws.sendText('{"op":1,"d":' (this.s is ComValue ? "null" : this.s) '}')
+        }
+        getLatency() {
+            this.sendHeartbeat()
+            while this.__last_heartbeatack < this.__last_heartbeat
+                Sleep 0
+            return this.__latency
         }
         /**
          * add an event listener
@@ -55,16 +75,38 @@ Class Discord {
             return event
         }
         getUser(id) => this.rest.getUser(id)
+        /**
+         * 
+         * @param presence 
+         * @property {Integer | JSON.null} since
+         * @property {String} status
+         * @property {JSON.true | JSON.false} afk
+         * @property {Array} activities
+         * @property {String} activity.name
+         * @property {String} activity.type
+         * @property {String} activity.url
+         */
+        setPresence(presence) {
+            if !(presence is Object)
+                throw TypeError("Expected an object but received a " Type(presence))
+            if !presence.HasProp("status")
+                throw TypeError("Missing property status")
+            if !presence.HasProp("afk")
+                throw TypeError("Missing property afk")
+            if !presence.HasProp("activities")
+                throw TypeError("Missing property activities")
+            this.__ws.sendText('{"op":3,"d":' JSON.stringify(presence) '}')
+        }
         Class REST {
-            token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "Discord.ahk by ninju"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
+            token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "ninjuuu"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
             __New(token, version?) {
-                if !token is String
+                if !(token is String)
                     throw TypeError("Expected a string but received a " Type(token))
                 if !RegExMatch(token, 'i)^[\w-.]{50,83}$')
                     throw TypeError("Invalid token")
                 this.token := token, this.headers.Authorization := "Bot " token
                 if IsSet(version) {
-                    if !version is String
+                    if !(version is String)
                         throw TypeError("Expected a string but received a " Type(version))
                     if !RegExMatch(version, 'i)^v\d+$')
                         throw TypeError("Invalid version identifier")
@@ -72,17 +114,16 @@ Class Discord {
                 }
             }
             Call(method, endpoint, data?, headers?) {
-                if !method is String
+                if !(method is String)
                     throw TypeError('Expected a String but got a ' Type(method))
                 if !((method:=StrUpper(method)) ~= '^(GET|POST|PUT|PATCH|DELETE)$')
                     throw TypeError('Invalid method')
-                if !endpoint is String
+                if !(endpoint is String)
                     throw TypeError('Expected a String but got a ' Type(endpoint))
                 if !RegExMatch(endpoint, 'i)^/[^\s]+/?$')
                     throw TypeError('Invalid endpoint')
                 if IsSet(data) && !(data is String || data is ComObjArray)
                     throw TypeError('Expected a String or a ComObjArray but got a ' Type(data))
-
                 this.whr.Open(method, this.baseURL (SubStr(endpoint,1,1) = '/' ? endpoint : '/' endpoint), false)
                 for i, j in this.headers.OwnProps()
                     this.whr.setRequestHeader(i, j)
@@ -94,22 +135,38 @@ Class Discord {
                 }
                 this.whr.option[9] := 2720
                 this.whr.Send(data?)
-                return this.whr.ResponseText                
+                if this.whr.Status = 429 {
+                    sf := JSON.parse(this.whr.ResponseText, true, false).retry_after
+                    Sleep sf*1000
+                    return this(method, endpoint, data?, headers?)
+                }
+                return this.whr.responseText
             }
             getUser(id) {
                 if !(id is String || id is Integer)
                     throw TypeError("Expected a string or an integer but received a " Type(id))
-                if !RegExMatch(id, 'i)^\d{17,20}$')
+                if !RegExMatch(id, 'i)^(\d{17,20}|@me)$')
                     throw TypeError("Invalid user id")
                 return Discord.User(JSON.parse(this('GET', '/users/' id),,false))
 
+            }
+            getMessages(channelId, amount) {
+                if !(channelId is String || channelId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
+                if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !IsInteger(amount)
+                    throw TypeError("Expected an integer but received a " Type(amount))
+                if amount < 1 || amount > 100
+                    throw TypeError("Amount must be between 1 and 100")
+                return JSON.parse(this('GET', '/channels/' channelId '/messages?limit=' amount),,false)
             }
             sendMessage(channel, message) {
                 if !(channel is String || channel is Integer)
                     throw TypeError("Expected a string or an integer but received a " Type(channel))
                 if !RegExMatch(channel, 'i)^\d{17,20}$')
                     throw TypeError("Invalid channel id")
-                if !message is Discord.Message
+                if !(message is Discord.Message)
                     throw TypeError("Expected a Discord.Message but received a " Type(message))
                 if message.attachments.length = 0 {
                     out := JSON.parse(this('POST', '/channels/' channel '/messages', JSON.stringify(message.obj), {%"Content-Type"%: "application/json"}),,false)
@@ -147,8 +204,163 @@ Class Discord {
                     throw TypeError("Invalid message id")
                 return this('DELETE', '/channels/' channel '/messages/' message)
             }
+            addCommand(command) {
+                if !(command is Discord.Command)
+                    throw TypeError("Expected a Discord.Command but received a " Type(command))
+                if command.guild_id
+                    return this('POST', '/applications/' this.getUser("@me").id '/guilds/' command.guild_id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
+                return this('POST', '/applications/' this.getUser("@me").id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
+            }
+            getCommands(guild_id?) {
+                if IsSet(guild_id) {
+                    if !(guild_id is String || guild_id is Integer)
+                        throw TypeError("Expected a string or an integer but received a " Type(guild_id))
+                    if !RegExMatch(guild_id, 'i)^\d{17,20}$')
+                        throw TypeError("Invalid guild id")
+                    return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands'),,false)
+                }
+                return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/commands'),,false)
+            }
+            deleteCommand(commandId, guild_id?) {
+                if !(commandId is String || commandId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(commandId))
+                if !RegExMatch(commandId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid command id")
+                if IsSet(guild_id) {
+                    if !(guild_id is String || guild_id is Integer)
+                        throw TypeError("Expected a string or an integer but received a " Type(guild_id))
+                    if !RegExMatch(guild_id, 'i)^\d{17,20}$')
+                        throw TypeError("Invalid guild id")
+                    return this('DELETE', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands/' commandId)
+                }
+                return this('DELETE', '/applications/' this.getUser("@me").id '/commands/' commandId)
+            }
+            setTyping(channelId) {
+                if !(channelId is String || channelId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
+                if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                return this('POST', '/channels/' channelId '/typing')
+            }
+            addReaction(channelId, MessageId, emoji) {
+                if !(channelId is String || channelId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
+                if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !(MessageId is String || MessageId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(MessageId))
+                if !RegExMatch(MessageId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid message id")
+                if !(emoji is String)
+                    throw TypeError("Expected a string but received a " Type(emoji))
+                if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
+                    if !StrLen(emoji) <= 2
+                        throw TypeError("Invalid emoji")
+                    StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
+                    encoded := ''
+                    loop utf8.Size {
+                        encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
+                    }
+                    emoji := encoded
+                }
+                return this('PUT', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
+            }
+            removeReaction(channelId, MessageId, emoji) {
+                if !(channelId is String || channelId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
+                if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !(MessageId is String || MessageId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(MessageId))
+                if !RegExMatch(MessageId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid message id")
+                if !(emoji is String)
+                    throw TypeError("Expected a string but received a " Type(emoji))
+                if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
+                    if !StrLen(emoji) <= 2
+                        throw TypeError("Invalid emoji")
+                    StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
+                    encoded := ''
+                    loop utf8.Size {
+                        encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
+                    }
+                    emoji := encoded
+                }
+                return this('DELETE', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
+            }
+            createDM(userID) {
+                if !(userID is String || userID is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(userID))
+                if !RegExMatch(userID, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid user id")
+                return this('POST', '/users/@me/channels', JSON.stringify({recipient_id: userID}), {%"Content-Type"%: "application/json"})
+            }
+            deleteBulk(channelId, amount) {
+                if !(channelId is String || channelId is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
+                if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid channel id")
+                if !(amount is Integer)
+                    throw TypeError("Expected an integer but received a " Type(amount))
+                if amount < 2 || amount > 100
+                    throw TypeError("Amount must be between 2 and 100")
+                arr := []
+                for i in this.getMessages(channelId, amount)
+                    arr.Push(i.id)
+                return this('POST', '/channels/' channelId '/messages/bulk-delete', JSON.stringify({messages: arr}), {%"Content-Type"%: "application/json"})
+            }
         }
-
+    }
+    Class DM {
+        rest:=0, id:=0
+        static Call(rest,userId) {
+            if !(rest is Discord.Bot.REST)
+                throw TypeError("Expected a Discord.Bot.REST but received a " Type(rest))
+            if !(userId is String || userId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(userId))
+            if !RegExMatch(userId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid user id")
+            obj := JSON.parse(rest('POST', '/users/@me/channels', JSON.stringify({recipient_id: userId}), {%"Content-Type"%: "application/json"}),, false)
+            obj.Base := Discord.DM.Prototype, obj.rest := rest
+            return obj
+        }
+        sendMessage(message) {
+            if !(message is Discord.Message)
+                throw TypeError("Expected a Discord.Message but received a " Type(message))
+            if message.attachments.length = 0 {
+                rest := this.rest
+                out := JSON.parse(rest('POST', '/channels/' this.id '/messages', JSON.stringify(message.obj), {%"Content-Type"%: "application/json"}),,false)
+                if !out.HasProp('id')
+                    return out
+                message.id := out.id
+                message.channel_id := out.channel_id
+                return message
+            }
+            fd := Discord.FormData()
+            fd.append('payload_json', s:=JSON.stringify(message.obj), StrLen(s), "application/json")
+            for i, j in message.attachments {
+                fd.append('files[' i-1 ']', j.ptr, j.size,j.contentType, j.filename)
+            }
+            rest := this.rest
+            out := JSON.parse(rest('POST', '/channels/' this.id '/messages', fd.data, {%"Content-Type"%: fd.contentType}),,false)
+            return out
+            /* if !out.HasProp('id')
+                return out
+            message.id := out.id
+            message.channel_id := out.channel_id
+            return message */
+        }
+        getMessages(limit := 1) {
+            if !IsInteger(limit)
+                throw TypeError("Expected an integer but received a " Type(limit))
+            if limit < 1 || limit > 100
+                throw TypeError("Limit must be between 1 and 100")
+            rest := this.rest
+            arr := JSON.parse(rest('GET', '/channels/' this.id '/messages?limit=' limit),,false)
+            for i, j in arr
+                arr[i] := {base: Discord.Message.Prototype, obj: j, attachments: [], id: j.id, channel_id: j.channel_id, rest: rest}
+            return arr
+        }
     }
     Class User {
         class Flags {
@@ -187,7 +399,7 @@ Class Discord {
         avatar => this.__private.__avatar
         flags => this.__private.__flags
         banner => this.__private.__banner
-        accent_color => this.__private.__accent_color
+        ;accent_color => this.__private.__accent_color
         premium_type => this.__private.__premium_type
         public_flags => this.__private.__public_flags
         avatar_decoration_data => this.__private.__avatar_decoration_data
@@ -205,14 +417,8 @@ Class Discord {
             for i, j in obj.OwnProps()
                 if this.__private.HasProp("__" i)
                     this.__private.%("__" i)% := j
-            for i,j in this.__private.OwnProps()
-                if !obj.HasProp(SubStr(i, 3))
-                    Throw TypeError("Missing property " i)
         }
     }
-/*     Class Channel {
-
-    } */
     Class Message {
         obj := {}, attachments:=[], id:=0, channel_id:=0
         __New(obj) {
@@ -225,7 +431,7 @@ Class Discord {
             if obj.HasProp("embeds") {
                 this.obj.embeds := []
                 for i, j in obj.embeds {
-                    if !j is Discord.Embed
+                    if !(j is Discord.Embed)
                         throw TypeError("Expected a Discord.Embed but received a " Type(j))
                     this.obj.embeds.Push(j.embed)
                     for k, l in j.mpfd
@@ -235,7 +441,7 @@ Class Discord {
             if obj.HasProp("attachments") {
                 this.obj.attachments := []
                 for i,j in obj.attachments {
-                    if !j is Discord.Attachment
+                    if !(j is Discord.Attachment)
                         throw TypeError("Expected a Discord.Attachment but received a " Type(j))
                     this.updateAttachments(j)
                     this.obj.attachments.Push({filename: j.filename, url: "attachment://" j.filename, id: 0, description: j.description})
@@ -249,14 +455,14 @@ Class Discord {
             if obj.HasProp("components") {
                 this.obj.components := []
                 for i,j in obj.components {
-                    if !j is Discord.Component
+                    if !(j is Discord.Component.ActionRow)
                         throw TypeError("Expected a Discord.Component but received a " Type(j))
-                    this.obj.components.Push(j)
+                    this.obj.components.Push(j.ar)
                 }
             }
         }
         updateAttachments(attachment) {
-            if !attachment is Discord.Attachment
+            if !(attachment is Discord.Attachment)
                 throw TypeError("Expected a Discord.Attachment but received a " Type(attachment))
             for i, j in this.attachments {
                 if attachment = j
@@ -267,20 +473,21 @@ Class Discord {
             this.attachments.Push(attachment)
         }
         send(REST, channel) {
-            if !REST is Discord.Bot.REST
+            if !(REST is Discord.Bot.REST)
                 throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
-            if !channel is String
+            if !(channel is String)
                 throw TypeError("Expected a string but received a " Type(channel))
             if !RegExMatch(channel, 'i)^\d{17,20}$')
                 throw TypeError("Invalid channel id")
+            this.rest := REST
             return REST.sendMessage(channel, this)
         }
-        edit(REST, obj) {
-            if !REST is Discord.Bot.REST
-                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+        edit(obj) {
+            if !this.HasProp("rest")
+                throw TypeError("Message must be sent before editing")
             if !this.id || !this.channel_id
                 throw TypeError("Message must be sent before editing")
-            if !obj is Object
+            if !(obj is Object)
                 throw TypeError("Expected an object but received a " Type(obj))
             this.obj.content := '', this.obj.embeds := [], this.obj.attachments := [], this.obj.components := [], this.attachments := []
             if obj.HasProp("content") {
@@ -291,7 +498,7 @@ Class Discord {
             if obj.HasProp("embeds") {
                 this.obj.embeds := []
                 for i, j in obj.embeds {
-                    if !j is Discord.Embed
+                    if !(j is Discord.Embed)
                         throw TypeError("Expected a Discord.Embed but received a " Type(j))
                     this.obj.embeds.Push(j.embed)
                     for k, l in j.mpfd
@@ -301,7 +508,7 @@ Class Discord {
             if obj.HasProp("attachments") {
                 this.obj.attachments := []
                 for i,j in obj.attachments {
-                    if !j is Discord.Attachment
+                    if !(j is Discord.Attachment)
                         throw TypeError("Expected a Discord.Attachment but received a " Type(j))
                     this.updateAttachments(j)
                     this.obj.attachments.Push({filename: j.filename, url: "attachment://" j.filename, id: 0, description: j.description})
@@ -310,25 +517,27 @@ Class Discord {
             if obj.HasProp("components") {
                 this.obj.components := []
                 for i,j in obj.components {
-                    if !j is Discord.Component
+                    if !(j is Discord.Component)
                         throw TypeError("Expected a Discord.Component but received a " Type(j))
                     this.obj.components.Push(j)
                 }
             }
+            REST := this.rest
             return REST("PATCH", "/channels/" this.channel_id "/messages/" this.id, JSON.stringify(this.obj), {%"Content-Type"%: "application/json"})
         }
-        delete(REST) {
-            if !REST is Discord.Bot.REST
-                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+        delete() {
+            if !this.HasProp("rest")
+                throw TypeError("Message must be sent before deleting")
             if !this.id || !this.channel_id
                 throw TypeError("Message must be sent before deleting")
+            REST := this.rest
             return REST.deleteMessage(this.channel_id, this.id)
         }
     }
     Class Embed {
         embed := {}, mpfd := []
         setTitle(title) {
-            if !title is String
+            if !(title is String)
                 throw TypeError("Expected a string but received a " Type(title))
             if StrLen(title) > 256
                 throw TypeError("Title must be less than 256 characters")
@@ -336,7 +545,7 @@ Class Discord {
             return this
         }
         setDescription(description) {
-            if !description is String
+            if !(description is String)
                 throw TypeError("Expected a string but received a " Type(description))
             if StrLen(description) > 4096
                 throw TypeError("Description must be less than 4096 characters")
@@ -344,7 +553,7 @@ Class Discord {
             return this
         }
         setUrl(url) {
-            if !url is String
+            if !(url is String)
                 throw TypeError("Expected a string but received a " Type(url))
             if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
                 throw TypeError("Invalid url")
@@ -353,7 +562,7 @@ Class Discord {
         }
         setTimestamp(timestamp?) {
             if IsSet(timestamp) {
-                if !timestamp is Discord.TimeStamp
+                if !(timestamp is Discord.TimeStamp)
                     throw TypeError("Expected a Discord.TimeStamp but received a " Type(timestamp))
             }
             else {
@@ -377,7 +586,7 @@ Class Discord {
             return this
         }
         setFooter(text, icon_url?) {
-            if !text is String
+            if !(text is String)
                 throw TypeError("Expected a string but received a " Type(text))
             if StrLen(text) > 2048
                 throw TypeError("Text must be less than 2048 characters")
@@ -427,12 +636,12 @@ Class Discord {
             return this
         }
         setAuthor(name, url?, icon_url?) {
-            if !name is String
+            if !(name is String)
                 throw TypeError("Expected a string but received a " Type(name))
             if StrLen(name) > 256
                 throw TypeError("Name must be less than 256 characters")
             if IsSet(url) {
-                if !url is String
+                if !(url is String)
                     throw TypeError("Expected a string but received a " Type(url))
                 if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
                     throw TypeError("Invalid url")
@@ -457,9 +666,9 @@ Class Discord {
             return this
         }
         addField(name, value, inline := false) {
-            if !name is String
+            if !(name is String)
                 throw TypeError("Expected a string but received a " Type(name))
-            if !value is String
+            if !(value is String)
                 throw TypeError("Expected a string but received a " Type(value))
             if StrLen(name) > 256
                 throw TypeError("Name must be less than 256 characters")
@@ -473,7 +682,7 @@ Class Discord {
     }
     Class TimeStamp {
         static Call(timestamp) {
-            if !timestamp is String
+            if !(timestamp is String)
                 throw TypeError("Expected a string but received a " Type(timestamp))
             if RegExMatch(timestamp, 'i)^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$')
                 return {base: Discord.TimeStamp.Prototype, timestamp: timestamp}
@@ -489,15 +698,6 @@ Class Discord {
             }
         }
     }
-    Class Reaction {
-
-    }
-    Class Role {
-
-    }
-    Class Guild {
-
-    }
     Class Command {
         static CommandEnum := {
             SUB_COMMAND: 1,
@@ -512,30 +712,57 @@ Class Discord {
             NUMBER: 10
         }
         guild_id := 0
+        static __New() {
+            for i, j in {STRING: 3, INTEGER: 4, BOOLEAN: 5, USER: 6, CHANNEL: 7, ROLE: 8, MENTIONABLE: 9, NUMBER: 10}.OwnProps()
+                this.Prototype.Add%i%Option := ObjBindMethod(this, "addOption", j)
+        }
         __New(name, description, guild_id?) {
             if IsSet(guild_id) {
                 this.guild_id := guild_id
             }
             this.command := {name: name, description: description}
         }
-        addStringOption() {
-            if !this.command.hasProp('options')
-                this.command.options := [{type:3}]
-            else
-                this.command.options.push({type:3})
-            return Discord.Command.Option()
+        static addOption(optiontype, self, name, description, required := false) {
+            return Discord.Command.Option(optiontype, self.command, name, description, required ? JSON.true : JSON.false)
         }
-        addIntegerOption() {
-
+        addSubCommand(name, description) {
+            return Discord.Command.SUB_COMMAND(this.command, name, description)
         }
-        addBooleanOption() {
-
-        }
-
         class Option {
-
+            static __New() {
+                for i, j in {STRING: 3, INTEGER: 4, BOOLEAN: 5, USER: 6, CHANNEL: 7, ROLE: 8, MENTIONABLE: 9, NUMBER: 10}.OwnProps()
+                    this.Prototype.Add%i%Option := ObjBindMethod(this, "addOption", j)
+            }
+            __New(optionType, self, name, description, required) {
+                this.self := self
+                if !self.HasProp('options')
+                    self.options := []
+                self.options.Push(this.obj:={type: optionType, name: name, description: description, required: required})
+            }
+            addChoice(name, value) {
+                value := value = "true" ? JSON.true : value = "false" ? JSON.false : value = "null" ? JSON.null : value
+                if this.obj.hasProp('choices')
+                    this.obj.choices.push({name: name, value: value})
+                else
+                    this.obj.choices := [{name: name, value: value}]
+                return this
+            }
+            static addOption(optiontype, self, name, description, required := false) => (Discord.Command.Option(optiontype, self.self, name, description, required ? JSON.true : JSON.false), self)
         }
         class SUB_COMMAND {
+            static __New() {
+                for i, j in {STRING: 3, INTEGER: 4, BOOLEAN: 5, USER: 6, CHANNEL: 7, ROLE: 8, MENTIONABLE: 9, NUMBER: 10}.OwnProps()
+                    this.Prototype.Add%i%Option := ObjBindMethod(this, "addOption", j)
+            }
+            __New(self, name, description) {
+                this.self := self
+                if !self.HasProp('options')
+                    self.options := []
+                self.options.Push(this.obj:={type: 1, name: name, description: description})
+            }
+            static addOption(optionType, self, name, description, required := false) {
+                return Discord.Command.Option(optionType, self.obj, name, description, required ? JSON.true : JSON.false)
+            }
 
         }
         class SUB_COMMAND_GROUP {
@@ -673,9 +900,9 @@ Class Discord {
         }
         name := "", callback := 0
         __New(name, callback, intents) {
-            if !callback is Func
+            if !(callback is Func)
                 throw TypeError("Expected a function but received a " Type(callback))
-            if !name is String or !Discord.Event.EventEnum.HasProp(name)
+            if !(name is String) or !Discord.Event.EventEnum.HasProp(name)
                 throw TypeError("Invalid event name")
             if callback.MaxParams < 3 || callback.MinParams > 3
                 throw TypeError("Invalid callback")
@@ -684,9 +911,6 @@ Class Discord {
             this.name := name, this.callback := (ev,args*) => callback(args*)           
         }
         
-    }
-    Class Webhook {
-
     }
     Class Intents {
         static GUILDS := 1 << 0
@@ -723,7 +947,7 @@ Class Discord {
         ptr := 0, size := 0, contentType := '', filename:='', description:=''
         Class File extends Discord.Attachment {
             __New(path, contentType?, description?) {
-                if !path is String
+                if !(path is String)
                     throw TypeError("Expected a string but received a " Type(path))
                 if !FileExist(path)
                     throw TypeError("File does not exist")
@@ -781,35 +1005,420 @@ Class Discord {
         }
     }
     Class Component {
-
+        Class TypeEnum {
+            static ACTION_ROW := 1
+            static BUTTON := 2
+            static SELECT_MENU := 3
+            static TEXT_INPUT := 4
+            static USER_SELECT_MENU := 5
+            static ROLE_SELECT_MENU := 6
+            static MENTIONABLE_SELECT_MENU := 7
+            static CHANNEL_SELECT_MENU := 8
+        }
+        Class ButtonStyles {
+            static PRIMARY := 1
+            static SECONDARY := 2
+            static SUCCESS := 3
+            static DANGER := 4
+            static LINK := 5
+        }
+        Class TextStyles {
+            static SHORT := 1
+            static PARAGRAPH := 2
+        }
+        Class ActionRow {
+            ar:={type: 1, components: []}
+            addButton(Button) {
+                if !(Button is Discord.Component.Button)
+                    throw TypeError("Expected a Discord.Component.Button but received a " Type(Button))
+                this.ar.components.Push(Button.data)
+                return this
+            }
+            addSelectMenu(SelectMenu) {
+                if !(SelectMenu is Discord.Component.StringSelectMenu)
+                    throw TypeError("Expected a Discord.Component.SelectMenu but received a " Type(SelectMenu))
+                this.ar.components.Push(SelectMenu.data)
+                return this
+            }
+            addTextInput(TextInput) {
+                if !(TextInput is Discord.Component.TextInput)
+                    throw TypeError("Expected a Discord.Component.TextInput but received a " Type(TextInput))
+                this.ar.components.Push(TextInput.data)
+                return this
+            }
+            addUserSelectMenu(UserSelectMenu) {
+                if !(UserSelectMenu is Discord.Component.UserSelectMenu)
+                    throw TypeError("Expected a Discord.Component.UserSelectMenu but received a " Type(UserSelectMenu))
+                this.ar.components.Push(UserSelectMenu.data)
+                return this
+            }
+            addRoleSelectMenu(RoleSelectMenu) {
+                if !(RoleSelectMenu is Discord.Component.RoleSelectMenu)
+                    throw TypeError("Expected a Discord.Component.RoleSelectMenu but received a " Type(RoleSelectMenu))
+                this.ar.components.Push(RoleSelectMenu.data)
+                return this
+            }
+            addMentionableSelectMenu(MentionableSelectMenu) {
+                if !(MentionableSelectMenu is Discord.Component.MentionableSelectMenu)
+                    throw TypeError("Expected a Discord.Component.MentionableSelectMenu but received a " Type(MentionableSelectMenu))
+                this.ar.components.Push(MentionableSelectMenu.data)
+                return this
+            }
+            addChannelSelectMenu(ChannelSelectMenu) {
+                if !(ChannelSelectMenu is Discord.Component.ChannelSelectMenu)
+                    throw TypeError("Expected a Discord.Component.ChannelSelectMenu but received a " Type(ChannelSelectMenu))
+                this.ar.components.Push(ChannelSelectMenu.data)
+                return this
+            }
+        }
+        class Button {
+            data := {type: Discord.Component.TypeEnum.BUTTON}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setStyle(style) {
+                if !(style is Integer)
+                    throw TypeError("Expected an integer but received a " Type(style))
+                this.data.style := style
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setEmoji(emoji) {
+                if !(n:=RegExMatch(emoji, 'i)^<:(?<name>[^\s]+):(?<id>[^\s]+)>$', &rmi)) && !(StrLen(emoji) <= 2)
+                    throw TypeError("Invalid emoji")
+                this.data.emoji := {name: n ? rmi.name : emoji, id: n ? rmi.id : JSON.null}
+                return this
+            }
+            setUrl(url) {
+                if !(url is String)
+                    throw TypeError("Expected a string but received a " Type(url))
+                if !RegExMatch(url, 'i)^https?://[^\s]+\.\w{2,6}[^\s]*$')
+                    throw TypeError("Invalid url")
+                this.data.url := url
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+        }
+        class TextInput {
+            data:={type: Discord.Component.TypeEnum.TEXT_INPUT, style: Discord.Component.TextStyles.SHORT}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            setStyle(style) {
+                if !(style is Integer)
+                    throw TypeError("Expected an integer but received a " Type(style))
+                if style > 2 || style < 1
+                    throw TypeError("Invalid style")
+                this.data.style := style
+                return this
+            }
+        }
+        class StringSelectMenu {
+            data := {type: Discord.Component.TypeEnum.SELECT_MENU, options: []}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            addOptions(options*) {
+                if this.data.options.Length + options.length > 25
+                    throw TypeError("Options limit reached")
+                for i, j in options {
+                    if !j.hasProp('label') || !j.hasProp('value')
+                        throw TypeError("Missing property")
+                    data := {label: j.label, value: j.value}
+                    if j.hasProp('description')
+                        data.description := j.description
+                    this.data.options.Push(data)
+                }
+                return this
+            }
+            setMinValues(min) {
+                if !(min is Integer)
+                    throw TypeError("Expected an integer but received a " Type(min))
+                if min < 0 || min > 25
+                    throw TypeError("Invalid value")
+                this.data.min_values := min
+                return this
+            }
+            setMaxValues(max) {
+                if !(max is Integer)
+                    throw TypeError("Expected an integer but received a " Type(max))
+                if max < 0 || max > 25
+                    throw TypeError("Invalid value")
+                this.data.max_values := max
+                return this
+            }
+        }
+        class UserSelectMenu {
+            data := {type: Discord.Component.TypeEnum.USER_SELECT_MENU}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            setMinValues(min) {
+                if !(min is Integer)
+                    throw TypeError("Expected an integer but received a " Type(min))
+                if min < 0 || min > 25
+                    throw TypeError("Invalid value")
+                this.data.min_values := min
+                return this
+            }
+            setMaxValues(max) {
+                if !(max is Integer)
+                    throw TypeError("Expected an integer but received a " Type(max))
+                if max < 0 || max > 25
+                    throw TypeError("Invalid value")
+                this.data.max_values := max
+                return this
+            }
+        }
+        class RoleSelectMenu {
+            data := {type: Discord.Component.TypeEnum.ROLE_SELECT_MENU}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            setMinValues(min) {
+                if !(min is Integer)
+                    throw TypeError("Expected an integer but received a " Type(min))
+                if min < 0 || min > 25
+                    throw TypeError("Invalid value")
+                this.data.min_values := min
+                return this
+            }
+            setMaxValues(max) {
+                if !(max is Integer)
+                    throw TypeError("Expected an integer but received a " Type(max))
+                if max < 0 || max > 25
+                    throw TypeError("Invalid value")
+                this.data.max_values := max
+                return this
+            }
+        }
+        class MentionableSelectMenu {
+            data := {type: Discord.Component.TypeEnum.MENTIONABLE_SELECT_MENU}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            setMinValues(min) {
+                if !(min is Integer)
+                    throw TypeError("Expected an integer but received a " Type(min))
+                if min < 0 || min > 25
+                    throw TypeError("Invalid value")
+                this.data.min_values := min
+                return this
+            }
+            setMaxValues(max) {
+                if !(max is Integer)
+                    throw TypeError("Expected an integer but received a " Type(max))
+                if max < 0 || max > 25
+                    throw TypeError("Invalid value")
+                this.data.max_values := max
+                return this
+            }
+        }
+        class ChannelSelectMenu {
+            data := {type: Discord.Component.TypeEnum.CHANNEL_SELECT_MENU}
+            setLabel(label) {
+                if !(label is String)
+                    throw TypeError("Expected a string but received a " Type(label))
+                this.data.label := label
+                return this
+            }
+            setCustomId(custom_id) {
+                if !(custom_id is String)
+                    throw TypeError("Expected a string but received a " Type(custom_id))
+                if !RegExMatch(custom_id, 'i)^\w{1,100}$')
+                    throw TypeError("Invalid custom_id")
+                this.data.custom_id := custom_id
+                return this
+            }
+            setPlaceholder(placeholder) {
+                if !(placeholder is String)
+                    throw TypeError("Expected a string but received a " Type(placeholder))
+                this.data.placeholder := placeholder
+                return this
+            }
+            setDisabled(disabled) {
+                disabled := disabled = "true" ? JSON.true : disabled = "false" ? JSON.false : disabled ? JSON.true : JSON.false
+                this.data.disabled := disabled
+                return this
+            }
+            setMinValues(min) {
+                if !(min is Integer)
+                    throw TypeError("Expected an integer but received a " Type(min))
+                if min < 0 || min > 25
+                    throw TypeError("Invalid value")
+                this.data.min_values := min
+                return this
+            }
+            setMaxValues(max) {
+                if !(max is Integer)
+                    throw TypeError("Expected an integer but received a " Type(max))
+                if max < 0 || max > 25
+                    throw TypeError("Invalid value")
+                this.data.max_values := max
+                return this
+            }
+        }
     }
     Class Interaction {
         static Call(self, obj) {
-            if !self is Discord.Bot
+            if !(self is Discord.Bot)
                 throw TypeError("Expected a Discord.Bot but received a " Type(self))
-            if !obj is Object
+            if !(obj is Object)
                 throw TypeError("Expected an object but received a " Type(obj))
-            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+            for i, j in ["id", "type", "data", "channel_id"]
                 if !obj.HasProp(j)
                     throw TypeError("Missing property " j)
             data := obj
+            data.base := this.Prototype
             data.timestamp := Discord.TimeStamp.Now()
-            data.startCount := (DllCall("QueryPerformanceCounter", "int64p", &_:=0), _)
+            data.startCount := Discord.QPC()
             data.self := self
             data.reply := ObjBindMethod(this, "Reply")
             data.deferReply := ObjBindMethod(this, "DeferReply")
             data.EditReply := ObjBindMethod(this, "EditReply")
+            data.delete := ObjBindMethod(this, "Delete")
+            data.followUp := ObjBindMethod(this, "followUp")
+            for i , j in Map("String", 3, "Integer", 4, "Boolean", 5, "User", 6, "Channel", 7, "Role", 8, "Mentionable", 9, "Number", 10)
+                data.get%i%option := ObjBindMethod(this, "getOption", j), data.getSub%i%option := ObjBindMethod(this, "getSubcommandOption", j)
             return data
         }
-        static Reply(data, Message) {
-            if !Message is Discord.Message
+        static Reply(data, Message, ephemeral := false) {
+            if !(data is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+            if Message is Discord.Modal
+                return Message.replyModal()
+            if !(Message is Discord.Message)
                 throw TypeError("Expected a Discord.Message but received a " Type(Message))
-            if !data is Object
-                throw TypeError("Expected an object but received a " Type(data))
-            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+            for i, j in ["id", "type", "data", "channel_id"]
                 if !data.HasProp(j)
                     throw TypeError("Missing property " j)
             rest := data.self.rest
+            if ephemeral
+                Message.obj.flags := 64
             if !Message.attachments.length
                 return rest("POST", "/interactions/" data.id "/" data.token "/callback", JSON.stringify({type: 4, data: Message.obj}), {%"Content-Type"%: "application/json"})
             fd := Discord.FormData()
@@ -819,20 +1428,20 @@ Class Discord {
             return rest("POST", "/interactions/" data.id "/" data.token "/callback", fd.data, {%"Content-Type"%: fd.contentType})
         }
         static DeferReply(data) {
-            if !data is Object
-                throw TypeError("Expected an object but received a " Type(data))
-            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+            if !(data is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+            for i, j in ["id", "type", "data", "channel_id"]
                 if !data.HasProp(j)
                     throw TypeError("Missing property " j)
             rest := data.self.rest
             return rest("POST", "/interactions/" data.id "/" data.token "/callback", JSON.stringify({type: 5}), {%"Content-Type"%: "application/json"})
         }
         static EditReply(data, Message) {
-            if !Message is Discord.Message
+            if !(Message is Discord.Message)
                 throw TypeError("Expected a Discord.Message but received a " Type(Message))
-            if !data is Object
-                throw TypeError("Expected an object but received a " Type(data))
-            for i, j in ["id", "type", "data", "guild_id", "channel_id"]
+            if !(data is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+            for i, j in ["id", "type", "data", "channel_id"]
                 if !data.HasProp(j)
                     throw TypeError("Missing property " j)
             rest := data.self.rest
@@ -843,6 +1452,61 @@ Class Discord {
             for i, j in Message.attachments
                 fd.append("files[" i-1 "]", j.ptr, j.size, j.contentType, j.filename)
             return rest("PATCH", "/webhooks/" data.self.user.id "/" data.token "/messages/@original", fd.data, {%"Content-Type"%: fd.contentType})
+        }
+        static getOption(optionType, self, option) {
+                for i, j in self.data.options
+                    if j.type = optionType && j.name = option
+                        return j.value
+                return 0
+        }
+        static getSubcommandOption(optionType, self, subcommand, option) {
+            for i, j in self.data.options
+                if j.type = 1 && j.name = subcommand
+                    for k, l in j.options
+                        if l.type = optionType && l.name = option
+                            return l.value
+        }
+        static Delete(data) {
+            if !(data is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+            rest := data.self.rest
+            return rest("DELETE", "/webhooks/" data.self.user.id "/" data.token "/messages/@original")
+        }
+        static followUp(data, Message) {
+            if !(Message is Discord.Message)
+                throw TypeError("Expected a Discord.Message but received a " Type(Message))
+            if !(data is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+            for i, j in ["id", "type", "data", "channel_id"]
+                if !data.HasProp(j)
+                    throw TypeError("Missing property " j)
+            rest := data.self.rest
+            if !Message.attachments.length
+                return rest("POST", "/webhooks/" data.self.user.id "/" data.token, JSON.stringify(Message.obj), {%"Content-Type"%: "application/json"})
+            fd := Discord.FormData()
+            fd.append("payload_json", s:=JSON.stringify(Message.obj), StrLen(s), "application/json")
+            for i, j in Message.attachments
+                fd.append("files[" i-1 "]", j.ptr, j.size, j.contentType, j.filename)
+            return rest("POST", "/webhooks/" data.self.user.id "/" data.token, fd.data, {%"Content-Type"%: fd.contentType})
+        }
+    }
+    class Modal {
+        self := 0, data := {type:0, data:{}}, interaction := 0
+        static Call(interaction, custom_id, title) {
+            return {base: Discord.Modal.Prototype, self: interaction.self, interaction: interaction, data: {type: 9, data: {custom_id: custom_id, title: title, components: []}}}
+        }
+        replyModal() {
+            rest := this.self.rest
+            return rest("POST", "/interactions/" this.interaction.id "/" this.interaction.token "/callback", JSON.stringify(this.data), {%"Content-Type"%: "application/json"})
+        }
+        addComponent(component) {
+            if !(component is Discord.Component.ActionRow)
+                throw TypeError("Expected a Discord.Component.ActionRow but received a " Type(component))
+            for i, j in component.ar.components
+                if j.type != 4
+                    throw TypeError("Invalid component")
+            this.data.data.components.Push(component.ar)
+            return this
         }
     }
 
@@ -934,7 +1598,7 @@ Class Discord {
                 static pHeapReAlloc := DllCall('GetProcAddress', 'ptr', DllCall('GetModuleHandle', 'str', 'kernel32', 'ptr'), 'astr', 'HeapReAlloc', 'ptr')
                 static pSendMessageW := DllCall('GetProcAddress', 'ptr', DllCall('GetModuleHandle', 'str', 'user32', 'ptr'), 'astr', 'SendMessageW', 'ptr')
                 static pWinHttpWebSocketReceive := DllCall('GetProcAddress', 'ptr', DllCall('GetModuleHandle', 'str', 'winhttp', 'ptr'), 'astr', 'WinHttpWebSocketReceive', 'ptr')
-                static _ := (OnMessage(wm_ahkmsg, WEBSOCKET_READ_WRITE_COMPLETE, 0xff), DllCall('SetParent', 'ptr', msg_gui.Hwnd, 'ptr', -3))
+                static _ := (OnMessage(wm_ahkmsg, WEBSOCKET_READ_WRITE_COMPLETE,0xff), DllCall('SetParent', 'ptr', msg_gui.Hwnd, 'ptr', -3))
                 ; #DllLoad E:\projects\test\test\x64\Debug\test.dll
                 ; on_read_complete := DllCall('GetProcAddress', 'ptr', DllCall('GetModuleHandle', 'str', 'test', 'ptr'), 'astr', 'WINHTTP_STATUS_READ_COMPLETE', 'ptr')
                 NumPut('ptr', pws := ObjPtr(self), 'ptr', msg_gui.Hwnd, 'uint', wm_ahkmsg, 'uint', InitialSize, 'ptr', hHeap,
@@ -949,6 +1613,7 @@ Class Discord {
             }
     
             static WEBSOCKET_READ_WRITE_COMPLETE(wp, lp, msg, hwnd) {
+                Critical
                 static map_has := Map.Prototype.Has
                 if !map_has(contexts, ws := NumGet(wp, 'ptr')) || (ws := ObjFromPtrAddRef(ws)).readyState != 1
                     return
@@ -1051,7 +1716,30 @@ Class Discord {
         }
     
         send(buf) => this._send(0, buf, buf.Size)
-    
+        waitForReceive() {
+            if (this.readyState != 1)
+                Throw Discord.WebSocket.Error('websocket is disconnected')
+            ptr := (cache := Buffer(size := 8192)).Ptr, offset := 0
+            while (!err := DllCall('Winhttp\WinHttpWebSocketReceive', 'ptr', this, 'ptr', ptr + offset, 'uint', size - offset, 'uint*', &dwBytesRead := 0, 'uint*', &eBufferType := 0)) {
+                switch eBufferType {
+                    case 1, 3:
+                        offset += dwBytesRead
+                        if offset == size
+                            cache.Size := size *= 2, ptr := cache.Ptr
+                    case 0, 2:
+                        offset += dwBytesRead
+                        if eBufferType == 2
+                            return StrGet(ptr, offset, 'utf-8')
+                        cache.Size := offset
+                        return cache
+                    case 4:
+                        rea := this.QueryCloseStatus(), this.shutdown()
+                        try this.onClose(rea.status, rea.reason)
+                        return
+                }
+            }
+            (err != 4317 && this.onError(err))
+        }
         receive() {
             if (this.readyState != 1)
                 Throw Discord.WebSocket.Error('websocket is disconnected')
@@ -1098,9 +1786,9 @@ Class Discord {
         append(name, value, size, contentType, filename?) {
             if this.__data
                 throw TypeError("Data has been created")
-            if !name is String
+            if !(name is String)
                 throw TypeError("Expected a string but received a " Type(name))
-            if !contentType is String
+            if !(contentType is String)
                 throw TypeError("Expected a string but received a " Type(contentType))
             if IsSet(filename) && !filename is String
                 throw TypeError("Expected a string but received a " Type(filename))
