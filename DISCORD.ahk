@@ -25,7 +25,7 @@ Class Discord {
                 throw TypeError("Invalid token")
             this.__token := token
             this.__ws.sendText(('{"op":2,"d":{"token":"' token '", "intents":' this.intents ', "properties":{"os":"windows","browser":"ahk","device":"ahk"}}}'))
-            this.rest := Discord.Bot.REST(token)
+            this.rest := Discord.REST(token)
         }
         __omsg(data) {
             data := JSON.parse(data, true, false)
@@ -97,225 +97,225 @@ Class Discord {
                 throw TypeError("Missing property activities")
             this.__ws.sendText('{"op":3,"d":' JSON.stringify(presence) '}')
         }
-        Class REST {
-            token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "ninjuuu"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
-            __New(token, version?) {
-                if !(token is String)
-                    throw TypeError("Expected a string but received a " Type(token))
-                if !RegExMatch(token, 'i)^[\w-.]{50,83}$')
-                    throw TypeError("Invalid token")
-                this.token := token, this.headers.Authorization := "Bot " token
-                if IsSet(version) {
-                    if !(version is String)
-                        throw TypeError("Expected a string but received a " Type(version))
-                    if !RegExMatch(version, 'i)^v\d+$')
-                        throw TypeError("Invalid version identifier")
-                    this.version := version, this.endpoint := 'https://discord.com/api/' version
-                }
+    }
+    Class REST {
+        token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "ninjuuu"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
+        __New(token, version?) {
+            if !(token is String)
+                throw TypeError("Expected a string but received a " Type(token))
+            if !RegExMatch(token, 'i)^[\w-.]{50,83}$')
+                throw TypeError("Invalid token")
+            this.token := token, this.headers.Authorization := "Bot " token
+            if IsSet(version) {
+                if !(version is String)
+                    throw TypeError("Expected a string but received a " Type(version))
+                if !RegExMatch(version, 'i)^v\d+$')
+                    throw TypeError("Invalid version identifier")
+                this.version := version, this.endpoint := 'https://discord.com/api/' version
             }
-            Call(method, endpoint, data?, headers?) {
-                if !(method is String)
-                    throw TypeError('Expected a String but got a ' Type(method))
-                if !((method:=StrUpper(method)) ~= '^(GET|POST|PUT|PATCH|DELETE)$')
-                    throw TypeError('Invalid method')
-                if !(endpoint is String)
-                    throw TypeError('Expected a String but got a ' Type(endpoint))
-                if !RegExMatch(endpoint, 'i)^/[^\s]+/?$')
-                    throw TypeError('Invalid endpoint')
-                if IsSet(data) && !(data is String || data is ComObjArray)
-                    throw TypeError('Expected a String or a ComObjArray but got a ' Type(data))
-                this.whr.Open(method, this.baseURL (SubStr(endpoint,1,1) = '/' ? endpoint : '/' endpoint), false)
-                for i, j in this.headers.OwnProps()
+        }
+        Call(method, endpoint, data?, headers?) {
+            if !(method is String)
+                throw TypeError('Expected a String but got a ' Type(method))
+            if !((method:=StrUpper(method)) ~= '^(GET|POST|PUT|PATCH|DELETE)$')
+                throw TypeError('Invalid method')
+            if !(endpoint is String)
+                throw TypeError('Expected a String but got a ' Type(endpoint))
+            if !RegExMatch(endpoint, 'i)^/[^\s]+/?$')
+                throw TypeError('Invalid endpoint')
+            if IsSet(data) && !(data is String || data is ComObjArray)
+                throw TypeError('Expected a String or a ComObjArray but got a ' Type(data))
+            this.whr.Open(method, this.baseURL (SubStr(endpoint,1,1) = '/' ? endpoint : '/' endpoint), false)
+            for i, j in this.headers.OwnProps()
+                this.whr.setRequestHeader(i, j)
+            if IsSet(headers) {
+                if !(headers is Object || headers is Map)
+                    throw TypeError('Expected an Object or a Map but got a ' Type(headers))
+                for i, j in headers is Map ? headers : headers.OwnProps()
                     this.whr.setRequestHeader(i, j)
-                if IsSet(headers) {
-                    if !(headers is Object || headers is Map)
-                        throw TypeError('Expected an Object or a Map but got a ' Type(headers))
-                    for i, j in headers is Map ? headers : headers.OwnProps()
-                        this.whr.setRequestHeader(i, j)
-                }
-                this.whr.option[9] := 2720
-                this.whr.Send(data?)
-                if this.whr.Status = 429 {
-                    sf := JSON.parse(this.whr.ResponseText, true, false).retry_after
-                    Sleep sf*1000
-                    return this(method, endpoint, data?, headers?)
-                }
-                return this.whr.responseText
             }
-            getUser(id) {
-                if !(id is String || id is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(id))
-                if !RegExMatch(id, 'i)^(\d{17,20}|@me)$')
-                    throw TypeError("Invalid user id")
-                return Discord.User(JSON.parse(this('GET', '/users/' id),,false))
+            this.whr.option[9] := 2720
+            this.whr.Send(data?)
+            if this.whr.Status = 429 {
+                sf := JSON.parse(this.whr.ResponseText, true, false).retry_after
+                Sleep sf*1000
+                return this(method, endpoint, data?, headers?)
+            }
+            return this.whr.responseText
+        }
+        getUser(id) {
+            if !(id is String || id is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(id))
+            if !RegExMatch(id, 'i)^(\d{17,20}|@me)$')
+                throw TypeError("Invalid user id")
+            return Discord.User(JSON.parse(this('GET', '/users/' id),,false))
 
-            }
-            getMessages(channelId, amount) {
-                if !(channelId is String || channelId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
-                if !RegExMatch(channelId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !IsInteger(amount)
-                    throw TypeError("Expected an integer but received a " Type(amount))
-                if amount < 1 || amount > 100
-                    throw TypeError("Amount must be between 1 and 100")
-                return JSON.parse(this('GET', '/channels/' channelId '/messages?limit=' amount),,false)
-            }
-            sendMessage(channel, message) {
-                if !(channel is String || channel is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channel))
-                if !RegExMatch(channel, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !(message is Discord.Message)
-                    throw TypeError("Expected a Discord.Message but received a " Type(message))
-                if message.attachments.length = 0 {
-                    out := JSON.parse(this('POST', '/channels/' channel '/messages', JSON.stringify(message.obj), {%"Content-Type"%: "application/json"}),,false)
-                    if !out.HasProp('id')
-                        return out
-                    message.id := out.id
-                    message.channel_id := out.channel_id
-                    return message
-                }
-                fd := Discord.FormData()
-                fd.append('payload_json', s:=JSON.stringify(message.obj), StrLen(s), "application/json")
-                for i, j in message.attachments {
-                    fd.append('files[' i-1 ']', j.ptr, j.size,j.contentType, j.filename)
-                }
-                out := JSON.parse(this('POST', '/channels/' channel '/messages', fd.data, {%"Content-Type"%: fd.contentType}),,false)
+        }
+        getMessages(channelId, amount) {
+            if !(channelId is String || channelId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channelId))
+            if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !IsInteger(amount)
+                throw TypeError("Expected an integer but received a " Type(amount))
+            if amount < 1 || amount > 100
+                throw TypeError("Amount must be between 1 and 100")
+            return JSON.parse(this('GET', '/channels/' channelId '/messages?limit=' amount),,false)
+        }
+        sendMessage(channel, message) {
+            if !(channel is String || channel is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channel))
+            if !RegExMatch(channel, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !(message is Discord.Message)
+                throw TypeError("Expected a Discord.Message but received a " Type(message))
+            if message.attachments.length = 0 {
+                out := JSON.parse(this('POST', '/channels/' channel '/messages', JSON.stringify(message.obj), {%"Content-Type"%: "application/json"}),,false)
                 if !out.HasProp('id')
                     return out
                 message.id := out.id
                 message.channel_id := out.channel_id
                 return message
             }
-            deleteMessage(channel, message) {
-                if !(channel is String || channel is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channel))
-                if !RegExMatch(channel, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !(message is Discord.Message || message is String || message is Integer)
-                    throw TypeError("Expected a Discord.Message, a string or an integer but received a " Type(message))
-                if message is Discord.Message {
-                    if !message.id
-                        throw TypeError("Message must be sent before deleting")
-                    message := message.id
+            fd := Discord.FormData()
+            fd.append('payload_json', s:=JSON.stringify(message.obj), StrLen(s), "application/json")
+            for i, j in message.attachments {
+                fd.append('files[' i-1 ']', j.ptr, j.size,j.contentType, j.filename)
+            }
+            out := JSON.parse(this('POST', '/channels/' channel '/messages', fd.data, {%"Content-Type"%: fd.contentType}),,false)
+            if !out.HasProp('id')
+                return out
+            message.id := out.id
+            message.channel_id := out.channel_id
+            return message
+        }
+        deleteMessage(channel, message) {
+            if !(channel is String || channel is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channel))
+            if !RegExMatch(channel, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !(message is Discord.Message || message is String || message is Integer)
+                throw TypeError("Expected a Discord.Message, a string or an integer but received a " Type(message))
+            if message is Discord.Message {
+                if !message.id
+                    throw TypeError("Message must be sent before deleting")
+                message := message.id
+            }
+            if !RegExMatch(message, 'i)^\d{17,20}$')
+                throw TypeError("Invalid message id")
+            return this('DELETE', '/channels/' channel '/messages/' message)
+        }
+        addCommand(command) {
+            if !(command is Discord.Command)
+                throw TypeError("Expected a Discord.Command but received a " Type(command))
+            if command.guild_id
+                return this('POST', '/applications/' this.getUser("@me").id '/guilds/' command.guild_id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
+            return this('POST', '/applications/' this.getUser("@me").id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
+        }
+        getCommands(guild_id?) {
+            if IsSet(guild_id) {
+                if !(guild_id is String || guild_id is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(guild_id))
+                if !RegExMatch(guild_id, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid guild id")
+                return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands'),,false)
+            }
+            return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/commands'),,false)
+        }
+        deleteCommand(commandId, guild_id?) {
+            if !(commandId is String || commandId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(commandId))
+            if !RegExMatch(commandId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid command id")
+            if IsSet(guild_id) {
+                if !(guild_id is String || guild_id is Integer)
+                    throw TypeError("Expected a string or an integer but received a " Type(guild_id))
+                if !RegExMatch(guild_id, 'i)^\d{17,20}$')
+                    throw TypeError("Invalid guild id")
+                return this('DELETE', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands/' commandId)
+            }
+            return this('DELETE', '/applications/' this.getUser("@me").id '/commands/' commandId)
+        }
+        setTyping(channelId) {
+            if !(channelId is String || channelId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channelId))
+            if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            return this('POST', '/channels/' channelId '/typing')
+        }
+        addReaction(channelId, MessageId, emoji) {
+            if !(channelId is String || channelId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channelId))
+            if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !(MessageId is String || MessageId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(MessageId))
+            if !RegExMatch(MessageId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid message id")
+            if !(emoji is String)
+                throw TypeError("Expected a string but received a " Type(emoji))
+            if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
+                if !StrLen(emoji) <= 2
+                    throw TypeError("Invalid emoji")
+                StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
+                encoded := ''
+                loop utf8.Size {
+                    encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
                 }
-                if !RegExMatch(message, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid message id")
-                return this('DELETE', '/channels/' channel '/messages/' message)
+                emoji := encoded
             }
-            addCommand(command) {
-                if !(command is Discord.Command)
-                    throw TypeError("Expected a Discord.Command but received a " Type(command))
-                if command.guild_id
-                    return this('POST', '/applications/' this.getUser("@me").id '/guilds/' command.guild_id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
-                return this('POST', '/applications/' this.getUser("@me").id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
-            }
-            getCommands(guild_id?) {
-                if IsSet(guild_id) {
-                    if !(guild_id is String || guild_id is Integer)
-                        throw TypeError("Expected a string or an integer but received a " Type(guild_id))
-                    if !RegExMatch(guild_id, 'i)^\d{17,20}$')
-                        throw TypeError("Invalid guild id")
-                    return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands'),,false)
+            return this('PUT', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
+        }
+        removeReaction(channelId, MessageId, emoji) {
+            if !(channelId is String || channelId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channelId))
+            if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !(MessageId is String || MessageId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(MessageId))
+            if !RegExMatch(MessageId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid message id")
+            if !(emoji is String)
+                throw TypeError("Expected a string but received a " Type(emoji))
+            if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
+                if !StrLen(emoji) <= 2
+                    throw TypeError("Invalid emoji")
+                StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
+                encoded := ''
+                loop utf8.Size {
+                    encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
                 }
-                return JSON.parse(this('GET', '/applications/' this.getUser("@me").id '/commands'),,false)
+                emoji := encoded
             }
-            deleteCommand(commandId, guild_id?) {
-                if !(commandId is String || commandId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(commandId))
-                if !RegExMatch(commandId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid command id")
-                if IsSet(guild_id) {
-                    if !(guild_id is String || guild_id is Integer)
-                        throw TypeError("Expected a string or an integer but received a " Type(guild_id))
-                    if !RegExMatch(guild_id, 'i)^\d{17,20}$')
-                        throw TypeError("Invalid guild id")
-                    return this('DELETE', '/applications/' this.getUser("@me").id '/guilds/' guild_id '/commands/' commandId)
-                }
-                return this('DELETE', '/applications/' this.getUser("@me").id '/commands/' commandId)
-            }
-            setTyping(channelId) {
-                if !(channelId is String || channelId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
-                if !RegExMatch(channelId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                return this('POST', '/channels/' channelId '/typing')
-            }
-            addReaction(channelId, MessageId, emoji) {
-                if !(channelId is String || channelId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
-                if !RegExMatch(channelId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !(MessageId is String || MessageId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(MessageId))
-                if !RegExMatch(MessageId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid message id")
-                if !(emoji is String)
-                    throw TypeError("Expected a string but received a " Type(emoji))
-                if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
-                    if !StrLen(emoji) <= 2
-                        throw TypeError("Invalid emoji")
-                    StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
-                    encoded := ''
-                    loop utf8.Size {
-                        encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
-                    }
-                    emoji := encoded
-                }
-                return this('PUT', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
-            }
-            removeReaction(channelId, MessageId, emoji) {
-                if !(channelId is String || channelId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
-                if !RegExMatch(channelId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !(MessageId is String || MessageId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(MessageId))
-                if !RegExMatch(MessageId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid message id")
-                if !(emoji is String)
-                    throw TypeError("Expected a string but received a " Type(emoji))
-                if !RegExMatch(emoji, 'i)^<[^\s]+:[^\s]+>$') {
-                    if !StrLen(emoji) <= 2
-                        throw TypeError("Invalid emoji")
-                    StrPut(emoji, utf8 := Buffer(StrPut(emoji, "UTF-8")-1), "UTF-8")
-                    encoded := ''
-                    loop utf8.Size {
-                        encoded .= Format("%{:02X}", NumGet(utf8.Ptr, A_Index-1, "UChar"))
-                    }
-                    emoji := encoded
-                }
-                return this('DELETE', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
-            }
-            createDM(userID) {
-                if !(userID is String || userID is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(userID))
-                if !RegExMatch(userID, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid user id")
-                return this('POST', '/users/@me/channels', JSON.stringify({recipient_id: userID}), {%"Content-Type"%: "application/json"})
-            }
-            deleteBulk(channelId, amount) {
-                if !(channelId is String || channelId is Integer)
-                    throw TypeError("Expected a string or an integer but received a " Type(channelId))
-                if !RegExMatch(channelId, 'i)^\d{17,20}$')
-                    throw TypeError("Invalid channel id")
-                if !(amount is Integer)
-                    throw TypeError("Expected an integer but received a " Type(amount))
-                if amount < 2 || amount > 100
-                    throw TypeError("Amount must be between 2 and 100")
-                arr := []
-                for i in this.getMessages(channelId, amount)
-                    arr.Push(i.id)
-                return this('POST', '/channels/' channelId '/messages/bulk-delete', JSON.stringify({messages: arr}), {%"Content-Type"%: "application/json"})
-            }
+            return this('DELETE', '/channels/' channelId '/messages/' MessageId '/reactions/' emoji '/@me')
+        }
+        createDM(userID) {
+            if !(userID is String || userID is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(userID))
+            if !RegExMatch(userID, 'i)^\d{17,20}$')
+                throw TypeError("Invalid user id")
+            return this('POST', '/users/@me/channels', JSON.stringify({recipient_id: userID}), {%"Content-Type"%: "application/json"})
+        }
+        deleteBulk(channelId, amount) {
+            if !(channelId is String || channelId is Integer)
+                throw TypeError("Expected a string or an integer but received a " Type(channelId))
+            if !RegExMatch(channelId, 'i)^\d{17,20}$')
+                throw TypeError("Invalid channel id")
+            if !(amount is Integer)
+                throw TypeError("Expected an integer but received a " Type(amount))
+            if amount < 2 || amount > 100
+                throw TypeError("Amount must be between 2 and 100")
+            arr := []
+            for i in this.getMessages(channelId, amount)
+                arr.Push(i.id)
+            return this('POST', '/channels/' channelId '/messages/bulk-delete', JSON.stringify({messages: arr}), {%"Content-Type"%: "application/json"})
         }
     }
     Class DM {
         rest:=0, id:=0
         static Call(rest,userId) {
-            if !(rest is Discord.Bot.REST)
-                throw TypeError("Expected a Discord.Bot.REST but received a " Type(rest))
+            if !(rest is Discord.REST)
+                throw TypeError("Expected a Discord.REST but received a " Type(rest))
             if !(userId is String || userId is Integer)
                 throw TypeError("Expected a string or an integer but received a " Type(userId))
             if !RegExMatch(userId, 'i)^\d{17,20}$')
@@ -473,8 +473,8 @@ Class Discord {
             this.attachments.Push(attachment)
         }
         send(REST, channel) {
-            if !(REST is Discord.Bot.REST)
-                throw TypeError("Expected a Discord.Bot.REST but received a " Type(REST))
+            if !(REST is Discord.REST)
+                throw TypeError("Expected a Discord.REST but received a " Type(REST))
             if !(channel is String)
                 throw TypeError("Expected a string but received a " Type(channel))
             if !RegExMatch(channel, 'i)^\d{17,20}$')

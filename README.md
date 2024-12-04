@@ -8,80 +8,42 @@ Download AutoHotkey v2 from [the official website](https://autohotkey.com/downlo
 
 *****
 
-### Getting Started
-install everything you need and place everything inside your lib folder
-then include either `BOT.ahk` or `WEBHOOK.ahk` depending on what you need:
+#### Getting Started
+To get started, include the library by using the `#include` directive before the code is being used.
 ```ahk
-#include lib\BOT.ahk
+#include <DISCORD>
 ```
-or
-```ahk
-#include lib\WEBHOOK.ahk
-```
+*****
+## Objects
+- **Discord.Bot** is the bot itself.
+- **Discord.REST** is for any REST api traffic. Is included in a `Discord.Bot` instance.
+- **Discord\.DM** is used to create a Direct Message to a user.
+- **Discord.User** is a user Object.
+- **Discord.Message** is a message that you can send/edit/delete
+- **Discord.Embed** is the Discord Embed Builder
+- **Discord.TimeStamp** creates a Discord Timestamp.
+- **Discord.Command** is used to create commands
+    - **Discord.Command.SUB_COMMAND** create subcommands
+    - **Discord.Command.SUB_COMMAND_GROUP** (not yet implemented)
+- **Discord.Event** creates an event that can be used with the (Discord.Bot).on and (Discord.Bot).once methods
+- **Discord.Intents** has a list of intents that are passed to the `Discord.Bot` constructor method
+- **Discord.Presence** is a list of discord presences that a bot can have
+- **Discord.Attachment** is used to create a file attachment with the two subclasses:
+    - **Discord.Attachment.File**
+    - **Discord.Attachment.Bitmap**
+- **Discord.Component** has following subclasses:
+    - **Discord.Component.TypeEnum** a list of component types
+    - **Discord.Component.ButtonStyles** a list of button styles
+    - **Discord.Component.TextStyles** a list of text styles
+    - **Discord.Component.ActionRow** used to create an action row
+    - **Discord.Component.Button** is used to create a button object which can be added to a `Discord.Component.ActionRow`
+    - **Discord.Component.TextInput** can be added to a `Discord.Component.ActionRow` in a modal.
+    - **Discord.Component.StringSelectMenu** a drop down list for string.
+    - **Discord.Component.UserSelectMenu** a drop down list for members
+    - **Discord.Component.MentionableSelectMenu** a drop down list for all mentionables (roles and users)
+    - **Discord.Component.RoleSelectMenu** a drop down list for roles
+    - **Discord.Component.ChannelSelectMenu** a drop down list for channels in the guild.
+- **Discord.Interaction** used for an interaction handler with the `INTERACTION_CREATE` event.
+- **Discord.Modal** is used to create a Modal.
+***
 
-**To create a Webhook** you can do following:
-```ahk
-#include lib\WEBHOOK.ahk
-webhook := WebHookBuilder("YOU_WEBHOOK_URL")
-```
-then you can simply send stuff through webhook like that:
-```ahk
-webhook.send({
-    content: "Hello World!"
-})
-```
-**To create a Bot** you can do it like this:
-```ahk
-#include lib\BOT.ahk
-bot := Client(intents)
-bot.once("READY", (*) => msgbox("logged in as " bot.user.username))
-bot.login(BotToken)
-```
-replace the `intents` with the intents you want. You can view all intents in the Intents Class that is included in the Client.ahk file  
-and replace the `BotToken` with your own Bot Token. Make sure you dont put your BotToken in any files that are visible to the public
-
-this will also create a REST client which you can access with `bot.rest` 
-
-
-## WebHookBuilder
-_methods and properties_
-
-**Methods**
-```
-(WebHookBuilder) __New(webhookURL)       creates a new WebHookBuilder object
-(WebHookBuilder) Call(method, options)   performs an http request to your WebHook url
-(WebHookBuilder) send(obj)               sends the content of the object to your webhook
-```
-**Properties**
-```
-(WebHookBuilder) webhookURL              holds the webhook url
-```
-
-## Client
-_methods and properties_
-
-**Methods**
-```
-(Client) __New(intents)                     creates a new client
-(Client) login(token)                       logs in to the client
-(Client) omsg(msg)                          onMessage event methods, not meant to be used by the user
-(Client) handleEvent(data)                  gets called if omsg's op code is 0 and an event is included
-(Client) sendHeartbeat(*)                   heartbeat is handled by the library
-(Client) on(event, function)                appends an event to the given events callback list
-(Client) once(event, function)              appends an event to the given events callback list but only triggers once
-(Client) waitFor(event, callback, timeout)  waits for an event for a given amount of time
-(Client) setPresence(presence)              sets the bots presence
-```
-
-**Properties**
-```
-(Client) s                  holds the last sequence number received by the client
-(Client) intents            holds the intents as integer
-(Client) presence           holds the presence as an object
-(Client) ws                 holds the WebSocket object
-(Client) BotToken           holds the token of the bot, added once logged in with Client.login(BotToken)
-(Client) rest               holds the REST object of the client with version 10
-(Client) heartbeatInterval  holds the heartbeat interval of the session
-(Client) user               holds the user object received by "READY" event
-(Client) events             holds an object of all events where each of those has an array of callbacks
-```
