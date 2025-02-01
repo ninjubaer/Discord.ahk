@@ -12,8 +12,13 @@ Class Discord {
             this.__intents := intents
             this.__ws := Discord.WebSocket('wss://gateway.discord.gg/?v=10&encoding=json', {
                 message: (self, message) => this.__omsg(message),
-                close: (*)=>MsgBox("Close")
+                close: (self,*) => self.reconnect()
             })
+        }
+        Delete()=>this.__Delete()
+        __Delete() {
+            SetTimer(this.sendHeartbeat, 0)
+            this.__ws.close()
         }
         Intents=>this.__intents
         User=>this.__user
@@ -39,7 +44,7 @@ Class Discord {
                 case 10:
                     this.heartbeat_interval := data.d.heartbeat_interval
                     this.__last_heartbeatack := Discord.QPC()
-                    SetTimer((*)=>this.sendHeartbeat(), this.heartbeat_interval)
+                    SetTimer(this.sendHeartbeat, this.heartbeat_interval)
                 case 0:
                     switch data.t {
                         case "READY":
@@ -51,7 +56,7 @@ Class Discord {
                         SetTimer(((self,event,data)=>event.callback(self, event, data)).Bind(this, j, data.d), -1)
             }
         }
-        sendHeartbeat() {
+        sendHeartbeat(*) {
             s:=this.__last_heartbeat := Discord.QPC()
             this.__ws.sendText('{"op":1,"d":' (this.s is ComValue ? "null" : this.s) '}')
         }
@@ -97,6 +102,17 @@ Class Discord {
                 throw TypeError("Missing property activities")
             this.__ws.sendText('{"op":3,"d":' JSON.stringify(presence) '}')
         }
+        getMessages(channelId, amount) => this.rest.getMessages(channelId, amount)
+        sendMessage(channel, message) => this.rest.sendMessage(channel, message)
+        deleteMessage(channel, message) => this.rest.deleteMessage(channel, message)
+        addCommand(command) => this.rest.addCommand(command)
+        getCommands(guild_id) => this.rest.getCommands(guild_id)
+        deleteCommand(commandId, guild_id) => this.rest.deleteCommand(commandId, guild_id)
+        setTyping(channelId) => this.rest.setTyping(channelId)
+        addReaction(channelId, MessageId, emoji) => this.rest.addReaction(channelId, MessageId, emoji)
+        removeReaction(channelId, MessageId, emoji) => this.rest.removeReaction(channelId, MessageId, emoji)
+        createDM(userID) => Discord.DM.Call(this.rest, userID)
+        deleteBulk(channelId, amount) => this.rest.deleteBulk(channelId, amount)
     }
     Class REST {
         token := "", version := 'v10',baseURL := 'https://discord.com/api/v10', headers := {Authorization: "", %"User-Agent"%: "ninjuuu"}, whr := ComObject("WinHttp.WinHttpRequest.5.1")
@@ -211,6 +227,21 @@ Class Discord {
             if command.guild_id
                 return this('POST', '/applications/' this.getUser("@me").id '/guilds/' command.guild_id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
             return this('POST', '/applications/' this.getUser("@me").id '/commands', JSON.stringify(command.command), {%"Content-Type"%: "application/json"})
+        }
+        updateCommands(commandArr) {
+            if !(commandArr is Array)
+                throw TypeError("Expected an array but received a " Type(commandArr))
+            for i, j in commandArr {
+                if !(j is Discord.Command)
+                    throw TypeError("Expected a Discord.Command but received a " Type(j))
+            }
+            return this('PUT', '/applications/' this.getUser("@me").id '/commands', JSON.stringify(mapArr(commandArr, (i)=>i.command)), {%"Content-Type"%: "application/json"})
+            mapArr(arr, function) {
+                newArr := []
+                for i, j in arr
+                    newArr.Push(function(j))
+                return newArr
+            }
         }
         getCommands(guild_id?) {
             if IsSet(guild_id) {
@@ -1427,14 +1458,17 @@ Class Discord {
                 fd.append("files[" i-1 "]", j.ptr, j.size, j.contentType, j.filename)
             return rest("POST", "/interactions/" data.id "/" data.token "/callback", fd.data, {%"Content-Type"%: fd.contentType})
         }
-        static DeferReply(data) {
-            if !(data is Discord.Interaction)
-                throw TypeError("Expected a Discord.Interaction but received a " Type(data))
+        static DeferReply(self,data?) {
+            if !(self is Discord.Interaction)
+                throw TypeError("Expected a Discord.Interaction but received a " Type(self))
             for i, j in ["id", "type", "data", "channel_id"]
-                if !data.HasProp(j)
+                if !self.HasProp(j)
                     throw TypeError("Missing property " j)
-            rest := data.self.rest
-            return rest("POST", "/interactions/" data.id "/" data.token "/callback", JSON.stringify({type: 5}), {%"Content-Type"%: "application/json"})
+            rest := self.self.rest
+            reqData := {type: 5}
+            if data
+                reqData.data := data
+            return rest("POST", "/interactions/" self.id "/" self.token "/callback", JSON.stringify(reqData), {%"Content-Type"%: "application/json"})
         }
         static EditReply(data, Message) {
             if !(Message is Discord.Message)
